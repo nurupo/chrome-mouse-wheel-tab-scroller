@@ -17,7 +17,9 @@ Ctrl+PageUp and Ctrl+PageDown are Google Chrome hotkeys for navigating to the pr
 
 Either download the executable from [Releases](https://github.com/nurupo/chrome-mouse-wheel-tab-scroller/releases), or use the AutoIt script directly if you have [AutoIt installed](https://www.autoitscript.com/site/autoit/downloads/). Throw it into Startup folder in the Start menu so that it would start on system startup and you are all set.
 
-Note that antiviruses like to mark any AutoIt application as a virus, even if such application is benign, so don't be spooked if your antivirus complains about the executable.
+Note that the program might affect mouse performance, especially in video games, so if your mouse doesn't act as it should, you might want to close the program temporarily.
+
+Also note that antiviruses like to mark any AutoIt application as a virus, even if such application is benign, so don't be spooked if your antivirus complains about the executable.
 
 ## Attribution
 
