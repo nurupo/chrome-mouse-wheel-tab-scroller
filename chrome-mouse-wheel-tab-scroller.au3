@@ -28,7 +28,7 @@
 #AutoIt3Wrapper_icon=icon.ico
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_Fileversion=0.0.1.0
+#AutoIt3Wrapper_Res_Fileversion=0.0.2.0
 #AutoIt3Wrapper_Res_LegalCopyright=Maxim Biro
 
 #include "MouseOnEvent.au3"
