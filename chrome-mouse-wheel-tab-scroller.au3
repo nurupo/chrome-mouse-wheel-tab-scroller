@@ -68,11 +68,13 @@ Func isMouseInChromeTabsArea()
             If $isWindowMaximized Then
                 ; For some reason Chrome's Y position is -8 when the window is maximized, so if it's negative we assume it's 0
                 If $windowPos[1] < 0 Then $windowPos[1] = 0
-                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_MAXIMIZED And _
-                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED
+                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_MAXIMIZED And _ ; bottom bound
+                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED ; right bound
             Else
-                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED And _
-                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED
+                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED And _ ; bottom bound
+                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED And _ ; right bound
+                        $mousePos[1] >= $windowPos[1] And _ ; top bound
+                        $mousePos[0] >= $windowPos[0] ; left bound
             EndIf
         EndIf
     Next
