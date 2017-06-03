@@ -26,3 +26,9 @@ Also note that antiviruses like to mark any AutoIt application as a virus, even 
 This script uses [MouseOnEvent UDF](https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/), which is included in the repository for the convenience.
 
 The application icon is a combination of [Google Chrome icon](https://www.iconfinder.com/icons/1298719/chrome_google_icon) by [Just UI](https://www.iconfinder.com/justui) and a [tab icon](https://www.iconfinder.com/icons/3256/tab_icon) by [Everaldo Coelho](http://www.everaldo.com/).
+
+## License
+
+MIT
+
+Note that icons and MouseOnEvent UDF are licensed differently.
