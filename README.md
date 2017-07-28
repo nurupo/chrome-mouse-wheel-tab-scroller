@@ -19,7 +19,7 @@ Either download the executable from [Releases](https://github.com/nurupo/chrome-
 
 Note that the program might affect mouse performance, especially in video games, so if your mouse doesn't act as it should, you might want to close the program temporarily.
 
-Also note that antiviruses like to mark any AutoIt application as a virus, even if such application is benign, so don't be spooked if your antivirus complains about the executable.
+Also note that antiviruses like to mark any AutoIt application as a virus, even if such application is benign, so don't be too surprised if your antivirus complains about the executable.
 
 ## Attribution
 
