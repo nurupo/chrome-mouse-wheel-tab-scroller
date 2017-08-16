@@ -26,22 +26,28 @@
 
 #AutoIt3Wrapper_UseUpx=n
 #AutoIt3Wrapper_icon=icon.ico
+#AutoIt3Wrapper_Res_Icon_Add=icon_disabled.ico
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_Fileversion=0.0.2.0
+#AutoIt3Wrapper_Res_Fileversion=0.1.0.0
 #AutoIt3Wrapper_Res_LegalCopyright=Maxim Biro
 
 #include "MouseOnEvent.au3"
 
-$CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
-$CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
-$CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
-$CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
+Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
+Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
+Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
+Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 
-_MouseSetOnEvent($MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp")
-_MouseSetOnEvent($MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown")
+Dim Const $HOOKS[2][2] = [ _
+                            [$MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp"], _
+                            [$MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown"] _
+                         ]
+
+registerHooks()
 
 Opt("TrayMenuMode", 1)
+$trayDisable = TrayCreateItem("Disable (Gaming Mode)")
 $trayExit = TrayCreateItem("Exit")
 TraySetClick(16)
 TraySetState()
@@ -51,10 +57,32 @@ While 1
     Select
         Case $msg = $trayExit
             Exit
+        Case $msg = $trayDisable
+            $trayDisableState = TrayItemGetState($trayDisable)
+            Select
+                Case BitAnd($trayDisableState, $TRAY_CHECKED)
+                    TraySetIcon(@ScriptFullPath, 201)
+                    unregisterHooks()
+                Case BitAnd($trayDisableState, $TRAY_UNCHECKED)
+                    TraySetIcon(@ScriptFullPath, 99)
+                    registerHooks()
+            EndSelect
     EndSelect
 
     Sleep(10)
 WEnd
+
+Func registerHooks()
+    For $i = 0 To UBound($HOOKS, 1) - 1
+        _MouseSetOnEvent($HOOKS[$i][0], $HOOKS[$i][1])
+    Next
+EndFunc
+
+Func unregisterHooks()
+    For $i = 0 To UBound($HOOKS, 1) - 1
+        _MouseSetOnEvent($HOOKS[$i][0])
+    Next
+EndFunc
 
 Func isMouseInChromeTabsArea()
     $windowList = WinList("[REGEXPCLASS:Chrome_WidgetWin_]")

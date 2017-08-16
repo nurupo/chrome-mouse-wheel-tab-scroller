@@ -17,7 +17,7 @@ Ctrl+PageUp and Ctrl+PageDown are Google Chrome hotkeys for navigating to the pr
 
 Either download the executable from [Releases](https://github.com/nurupo/chrome-mouse-wheel-tab-scroller/releases), or use the AutoIt script directly if you have [AutoIt installed](https://www.autoitscript.com/site/autoit/downloads/). Throw it into Startup folder in the Start menu so that it would start on system startup and you are all set.
 
-Note that the program might affect mouse performance, especially in video games, so if your mouse doesn't act as it should, you might want to close the program temporarily.
+Note that the program might affect mouse performance, especially in video games, so if your mouse doesn't act as it should, you might want to disable the program temporarily from the tray menu.
 
 Also note that antiviruses like to mark any AutoIt application as a virus, even if such application is benign, so don't be too surprised if your antivirus complains about the executable.
 
@@ -25,7 +25,7 @@ Also note that antiviruses like to mark any AutoIt application as a virus, even 
 
 This script uses [MouseOnEvent UDF](https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/), which is included in the repository for the convenience.
 
-The application icon is a combination of [Google Chrome icon](https://www.iconfinder.com/icons/1298719/chrome_google_icon) by [Just UI](https://www.iconfinder.com/justui) and a [tab icon](https://www.iconfinder.com/icons/3256/tab_icon) by [Everaldo Coelho](http://www.everaldo.com/).
+The application icon is a combination of [Google Chrome icon](https://www.iconfinder.com/icons/1298719/chrome_google_icon) by [Just UI](https://www.iconfinder.com/justui), [tab icon](https://www.iconfinder.com/icons/3256/tab_icon) by [Everaldo Coelho](http://www.everaldo.com/) and [x icon](https://www.iconfinder.com/icons/1398917/circle_close_cross_delete_incorrect_invalid_x_icon) by [iconpack](https://www.iconfinder.com/iconpack).
 
 ## License
 
