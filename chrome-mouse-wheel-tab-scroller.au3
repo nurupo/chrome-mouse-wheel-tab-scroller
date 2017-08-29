@@ -29,7 +29,7 @@
 #AutoIt3Wrapper_Res_Icon_Add=icon_disabled.ico
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_Fileversion=0.1.0.0
+#AutoIt3Wrapper_Res_Fileversion=0.2.0.0
 #AutoIt3Wrapper_Res_LegalCopyright=Maxim Biro
 
 #include "MouseOnEvent.au3"
@@ -39,24 +39,48 @@ Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 
-Dim Const $HOOKS[2][2] = [ _
-                            [$MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp"], _
-                            [$MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown"] _
-                         ]
+Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
+Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
+$CFG_REVERSE = False
 
-registerHooks()
+Dim $HOOKS[2][2] = [ _
+                      [$MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp"], _
+                      [$MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown"] _
+                   ]
 
 Opt("TrayMenuMode", 1)
+$trayReverse = TrayCreateItem("Reverse scroll direction")
 $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
 $trayExit = TrayCreateItem("Exit")
 TraySetClick(16)
 TraySetState()
+
+readConfig()
+
+If $CFG_REVERSE Then
+    TrayItemSetState($trayReverse, $TRAY_CHECKED)
+    swapHooks()
+EndIf
+
+registerHooks()
 
 While 1
     $msg = TrayGetMsg()
     Select
         Case $msg = $trayExit
             Exit
+        Case $msg = $trayReverse
+            $CFG_REVERSE = Not $CFG_REVERSE
+            writeConfig()
+            
+            $trayDisableState = TrayItemGetState($trayDisable)
+            If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
+                unregisterHooks()
+            EndIf
+            swapHooks()
+            If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
+                registerHooks()
+            EndIf
         Case $msg = $trayDisable
             $trayDisableState = TrayItemGetState($trayDisable)
             Select
@@ -82,6 +106,12 @@ Func unregisterHooks()
     For $i = 0 To UBound($HOOKS, 1) - 1
         _MouseSetOnEvent($HOOKS[$i][0])
     Next
+EndFunc
+
+Func swapHooks()
+    $tmp = $HOOKS[0][0]
+    $HOOKS[0][0] = $HOOKS[1][0]
+    $HOOKS[1][0] = $tmp
 EndFunc
 
 Func isMouseInChromeTabsArea()
@@ -119,4 +149,14 @@ Func mouseWheelDown()
     If isMouseInChromeTabsArea() Then
         Send("^{PGDN}")
     EndIf
+EndFunc
+
+Func readConfig()
+    $CFG_REVERSE = IniRead($CFG_FILE_PATH, "options", "reverse", "False") == "True"
+EndFunc
+
+Func writeConfig()
+    DirCreate($CFG_DIR_PATH)
+    
+    IniWrite($CFG_FILE_PATH, "options", "reverse", String($CFG_REVERSE))
 EndFunc
