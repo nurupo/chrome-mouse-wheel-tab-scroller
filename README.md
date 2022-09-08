@@ -41,6 +41,6 @@ The application icon is a combination of [Google Chrome icon](https://www.iconfi
 
 ## License
 
-MIT
+chrome-mouse-wheel-tab-scroller.au3 -- GPL-3.0-only.
 
-Note that icons and MouseOnEvent UDF are licensed differently.
+The icons and MouseOnEvent UDF are licensed differently.
