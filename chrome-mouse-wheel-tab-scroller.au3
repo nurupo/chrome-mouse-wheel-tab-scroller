@@ -28,29 +28,39 @@
 
 #include "MouseOnEvent.au3"
 
+; Chrome offsets and class name
 Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
 Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
+Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
 
+; Config constants
 Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
 Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
 Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
      $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
      $CFG_MOUSE_CAPTURE_METHOD_MAX
 
-$cfgReverse = False
+; Config state
+$cfgReverse = Null
+$cfgAutofocus = Null
 $cfgMouseCaptureMethod = Null
 
+; Other application state
+$pointStruct = DllStructCreate($tagPOINT)
 Dim $HOOKS[2][2] = [ _
-                      [$MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp"], _
-                      [$MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown"] _
+                      [$MOUSE_WHEELSCROLLUP_EVENT, "onMouseWheel"], _
+                      [$MOUSE_WHEELSCROLLDOWN_EVENT, "onMouseWheel"] _
                    ]
 $registeredMouseCaptureMethod = Null
 $disabled = False
 
+Opt("WinWaitDelay", 0)
+
 Opt("TrayMenuMode", 1)
 $trayReverse = TrayCreateItem("Reverse scroll direction")
+$trayAutofocus = TrayCreateItem("Autofocus window")
 $trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
 $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
@@ -68,23 +78,23 @@ While 1
         Case $trayReverse
             $cfgReverse = Not $cfgReverse
             writeConfig()
-
-            $trayDisableState = TrayItemGetState($trayDisable)
-            If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
-                unregisterHooks()
-            EndIf
-            swapHooks()
-            If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
-                registerHooks()
-            EndIf
-        Case $trayDisable
-            $trayDisableState = TrayItemGetState($trayDisable)
+        Case $trayAutofocus
+            Local $trayAutofocusState = TrayItemGetState($trayAutofocus)
             Select
-                Case BitAnd($trayDisableState, $TRAY_CHECKED)
+                Case BitAND($trayAutofocusState, $TRAY_CHECKED)
+                    $cfgAutofocus = 1
+                Case BitAND($trayAutofocusState, $TRAY_UNCHECKED)
+                    $cfgAutofocus = 0
+            EndSelect
+            writeConfig()
+        Case $trayDisable
+            Local $trayDisableState = TrayItemGetState($trayDisable)
+            Select
+                Case BitAND($trayDisableState, $TRAY_CHECKED)
                     TraySetIcon(@ScriptFullPath, 201)
                     unregisterHooks()
                     $disabled = True
-                Case BitAnd($trayDisableState, $TRAY_UNCHECKED)
+                Case BitAND($trayDisableState, $TRAY_UNCHECKED)
                     TraySetIcon(@ScriptFullPath, 99)
                     $disabled = False
                     registerHooks()
@@ -133,51 +143,63 @@ Func unregisterHooks()
     Next
 EndFunc
 
-Func swapHooks()
-    $tmp = $HOOKS[0][0]
-    $HOOKS[0][0] = $HOOKS[1][0]
-    $HOOKS[1][0] = $tmp
+Func chromeWindowHandleWhenMouseInChromeTabsArea()
+    Local $mousePos = MouseGetPos()
+    DllStructSetData($pointStruct, "x", $mousePos[0])
+    DllStructSetData($pointStruct, "y", $mousePos[1])
+    Local $windowHandle = _WinAPI_WindowFromPoint($pointStruct)
+    Local $className = _WinAPI_GetClassName($windowHandle)
+    If StringLeft($className, StringLen($CHROME_WINDOW_CLASS_NAME_PREFIX)) <> $CHROME_WINDOW_CLASS_NAME_PREFIX Then
+        Return 0
+    EndIf
+    Local $windowPos = WinGetPos($windowHandle)
+    Local $windowStateBitmask = WinGetState($windowHandle)
+    If BitAND($windowStateBitmask, $WIN_STATE_MAXIMIZED) Then
+        ; For some reason Chrome's X and Y positions are -8 when the window is maximized, so if it's negative we assume it's 0
+        If $windowPos[1] < 0 Then $windowPos[1] = 0
+        If $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_MAXIMIZED And _ ; bottom bound
+            $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED _ ; right bound
+            Then Return $windowHandle
+    Else
+        If $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED And _ ; bottom bound
+            $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED And _ ; right bound
+            $mousePos[1] >= $windowPos[1] And _ ; top bound
+            $mousePos[0] >= $windowPos[0] _ ; left bound
+            Then Return $windowHandle
+    EndIf
+    Return 0
 EndFunc
 
-Func isMouseInChromeTabsArea()
-    $windowList = WinList("[REGEXPCLASS:Chrome_WidgetWin_]")
-    For $i = 1 To $windowList[0][0]
-        $windowStateBitmask = WinGetState($windowList[$i][1])
-        $isWindowActive = BitAND($windowStateBitmask, 8)
-        If $isWindowActive Then
-            $mousePos = MouseGetPos()
-            $windowPos = WinGetPos($windowList[$i][1])
-            $isWindowMaximized = BitAND($windowStateBitmask, 32)
-            If $isWindowMaximized Then
-                ; For some reason Chrome's Y position is -8 when the window is maximized, so if it's negative we assume it's 0
-                If $windowPos[1] < 0 Then $windowPos[1] = 0
-                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_MAXIMIZED And _ ; bottom bound
-                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED ; right bound
-            Else
-                Return $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED And _ ; bottom bound
-                        $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED And _ ; right bound
-                        $mousePos[1] >= $windowPos[1] And _ ; top bound
-                        $mousePos[0] >= $windowPos[0] ; left bound
-            EndIf
-        EndIf
-    Next
-    Return False
-EndFunc
-
-Func mouseWheelUp()
-    If isMouseInChromeTabsArea() Then
-        Send("^{PGUP}")
+; True if we should proceed with switching tabs, False otherwise
+Func handleAutofocus($windowHandle)
+    Local $windowStateBitmask = WinGetState($windowHandle)
+    If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
+        return True
+    EndIf
+    If Not $cfgAutofocus Then
+        return False
+    Else
+        Return _
+            WinActivate($windowHandle) <> 0 And _
+            WinWaitActive($windowHandle, "", 1) <> 0
     EndIf
 EndFunc
 
-Func mouseWheelDown()
-    If isMouseInChromeTabsArea() Then
-        Send("^{PGDN}")
+Func onMouseWheel($event)
+    If Not handleAutofocus(chromeWindowHandleWhenMouseInChromeTabsArea()) Then
+        Return
     EndIf
+    Switch $event
+        Case $MOUSE_WHEELSCROLLUP_EVENT
+            Send($cfgReverse ? "^{PGDN}" : "^{PGUP}")
+        Case $MOUSE_WHEELSCROLLDOWN_EVENT
+            Send($cfgReverse ? "^{PGUP}" : "^{PGDN}")
+    EndSwitch
 EndFunc
 
 Func readConfig()
     $cfgReverse = Int(IniRead($CFG_FILE_PATH, "options", "reverse", 0)) == 1
+    $cfgAutofocus = Int(IniRead($CFG_FILE_PATH, "options", "autofocus", 1)) == 1
     $cfgMouseCaptureMethod = Int(IniRead($CFG_FILE_PATH, "options", "mouseCaptureMethod", $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT))
     If $cfgMouseCaptureMethod < 0 Or $cfgMouseCaptureMethod >= $CFG_MOUSE_CAPTURE_METHOD_MAX Then
         ConsoleWrite("Warning: Incorrect value for the mouseCaptureMethod option in " & $CFG_FILE_PATH &", using the default: mouseCaptureMethod=" & $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT & @CRLF)
@@ -189,12 +211,17 @@ Func writeConfig()
     DirCreate($CFG_DIR_PATH)
 
     IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
+    IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
     IniWrite($CFG_FILE_PATH, "options", "mouseCaptureMethod", $cfgMouseCaptureMethod)
 EndFunc
 
 Func processConfig()
     If $cfgReverse Then
         TrayItemSetState($trayReverse, $TRAY_CHECKED)
+    EndIf
+
+    If $cfgAutofocus Then
+        TrayItemSetState($trayAutofocus, $TRAY_CHECKED)
     EndIf
 
     Switch $cfgMouseCaptureMethod
