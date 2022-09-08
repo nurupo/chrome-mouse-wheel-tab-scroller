@@ -6,8 +6,8 @@
     Filename:       MouseOnEvent.au3
     Description:    Set an events handler for Mouse device.
     Author:         G.Sandler a.k.a (Mr)CreatoR (CreatoR's Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)
-    Version:        2.3
-    Requirements:   AutoIt v3.3.6.1 - 3.3.14.1, Developed/Tested on Win 7, with standard 3-buttons mouse device.
+    Version:        2.4
+    Requirements:   AutoIt v3.3.6.1 - 3.3.14.1, Developed/Tested on Win 7,10 (x86, x64), with standard 3-buttons mouse device.
     Uses:           WinAPIEx.au3, APIConstants.au3, WindowsConstants.au3, GUIConstantsEx.au3, Timers.au3
 	Forum Link:     http://www.autoitscript.com/forum/index.php?showtopic=64738
     Notes:          
@@ -25,6 +25,10 @@
 							$a__MSOE_Events, $a__MSOE_Events_RI, $a__MSOE_PrmDblClk_Data, $a__MSOE_ScnDblClk_Data, $a__MSOE_XbtnDblClk_Data, $a__MSOE_RI_PrmDblClk_Data, $a__MSOE_RI_ScnDblClk_Data, $a__MSOE_RI_WhlDblClk_Data, $a__MSOE_RI_XbtnDblClk_Data
 					
     ChangLog:
+			v2.4 [15.03.2020]
+			* Fixed crash issue when runing under x64 script. Thanks to LarsJ (Gary Frost?).
+			* Added _MouseSetOnEvent_SetDblClckSpeed function to set double click speed.
+			
 			v2.3 [04.11.2015]
 			* Added user public constants $MOE_RUNDEFPROC and $MOE_BLOCKDEFPROC, to use in Event function to define current event blocking.
 			* Fixed issue with crash on changing events array.
@@ -119,6 +123,7 @@
 OnAutoItExitRegister('__MouseSetOnEvent_OnExitFunc')
 
 #Au3Stripper_Ignore_Funcs=__MouseSetOnEvent_MainHandler,__MouseSetOnEvent_MainHandler_RI,__MouseSetOnEvent_WM_CALL,__MouseSetOnEvent_WaitHookReturn,__MouseSetOnEvent_DoubleClickExpire,__MouseSetOnEvent_DoubleClickExpire_RI,__MouseSetOnEvent_OnExitFunc
+#Au3Stripper_Ignore_Variables=$a__MSOE_Events,$a__MSOE_Events_RI,$a__MSOE_PrmDblClk_Data,$a__MSOE_ScnDblClk_Data,$a__MSOE_XbtnDblClk_Data,$a__MSOE_RI_PrmDblClk_Data,$a__MSOE_RI_ScnDblClk_Data,$a__MSOE_RI_WhlDblClk_Data,$a__MSOE_RI_XbtnDblClk_Data
 
 #EndRegion Header
 
@@ -342,11 +347,11 @@ EndFunc
 ;										if it's set on existing event, the return is 2.
 ;					Failure 		- Returns 0 on UnSet event mode when there is no set events yet.
 ; Author.........:	G.Sandler ((Mr)CreatoR, CreatoR's Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)
-; Modified.......:	
+;
 ; Remarks........:	1) The original events-messages (such as $WM_MOUSEMOVE) can be used as well.
 ;					2) Blocking of $sFuncName function by window messages with commands
 ;                     such as "Msgbox()" can lead to unexpected behavior, the return to the system should be as fast as possible!
-; Related........:	
+; Related........:	_MouseSetOnEvent
 ; Link...........:	http://www.autoitscript.com/forum/index.php?showtopic=64738
 ; Example........:	Yes.
 ; ===============================================================================================================
@@ -432,6 +437,29 @@ Func _MouseSetOnEvent_RI($iEvent, $sFuncName = '', $hTargetWnd = 0, $vParam = ''
 	Return 1
 EndFunc
 
+; #FUNCTION# ====================================================================================================
+; Name...........:	_MouseSetOnEvent_SetDblClckSpeed
+; Description....:	Set double click speed.
+; Syntax.........:	_MouseSetOnEvent_SetDblClckSpeed($iSpeed = -1)
+; Parameters.....:	 - [Optional] Double click speed in milliseconds (default is -1 - get the speed from system settings).
+;					
+; Return values..:	Sets double click speed and returns 1.
+; Author.........:	G.Sandler ((Mr)CreatoR, CreatoR's Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)
+; Remarks........:	
+; Related........:	
+; Link...........:	http://www.autoitscript.com/forum/index.php?showtopic=64738
+; Example........:	Yes.
+; ===============================================================================================================
+Func _MouseSetOnEvent_SetDblClckSpeed($iSpeed = -1)
+	If $iSpeed = -1 Or $iSpeed = Default Then
+		$iSpeed = __MouseSetOnEvent_GetDoubleClickData(0)
+	EndIf
+	
+	$a__MSOE_DblClk_Data[0] = $iSpeed
+	
+	Return 1
+EndFunc
+
 #EndRegion Public Functions
 
 #Region Internal Functions
@@ -446,7 +474,7 @@ Func __MouseSetOnEvent_MainHandler($nCode, $wParam, $lParam)
 	Local $iWScrollDirection = 0
 	
 	If $a__MSOE_Events[0][0] < 1 Or $b__MSOE_Events_Changing Then
-		Return 0
+		Return _WinAPI_CallNextHookEx($h__MSOE_MouseHook, $nCode, $wParam, $lParam)
 	EndIf
 	
 	Local Const $stMSLLHOOKSTRUCT = $tagPOINT & ";dword mouseData;dword flags;dword time;ulong_ptr dwExtraInfo"
@@ -503,7 +531,7 @@ Func __MouseSetOnEvent_MainHandler($nCode, $wParam, $lParam)
 			EndIf
 			
 			If $a__MSOE_Events[$i][2] <> 0 And Not __MouseSetOnEvent_IsHoveredWnd($a__MSOE_Events[$i][2]) Then
-				Return 0 ;Allow default processing
+				Return $MOE_RUNDEFPROC ;_WinAPI_CallNextHookEx($h__MSOE_MouseHook, $nCode, $wParam, $lParam) ;Allow default processing
 			EndIf
 			
 			$i__MSOE_EventReturn = 0
@@ -687,7 +715,7 @@ EndFunc
 
 Func __MouseSetOnEvent_WaitHookReturn($hWnd, $iMsg, $iIDTimer, $dwTime)
 	If $i__MSOE_EventReturn = 1 Then
-		_Timer_KillTimer($h__MSOE_AutHwnd, $h__MSOE_Hook_Timer)
+		__MouseSetOnEvent_KillTimerEx($h__MSOE_AutHwnd, $h__MSOE_Hook_Timer)
 		__MouseSetOnEvent_OnExitFunc()
 	EndIf
 EndFunc
@@ -752,7 +780,7 @@ Func __MouseSetOnEvent_DoubleClickExpire($hWnd, $iMsg, $iIDTimer, $dwTime)
 		$aData = Eval('a__MSOE_' & $aEvntVars[$i] & 'DblClk_Data')
 		
 		If TimerDiff($aData[$i__MSOE_DblClkData_iTimer]) > $a__MSOE_DblClk_Data[0] Then
-			_Timer_KillTimer($h__MSOE_AutHwnd, $aData[$i__MSOE_DblClkData_hTimer])
+			__MouseSetOnEvent_KillTimerEx($h__MSOE_AutHwnd, $aData[$i__MSOE_DblClkData_hTimer])
 			
 			$aData[$i__MSOE_DblClkData_hTimer] = 0
 			$aData[$i__MSOE_DblClkData_iTimer] = 0
@@ -766,7 +794,7 @@ Func __MouseSetOnEvent_DoubleClickExpire_RI($hWnd, $iMsg, $iIDTimer, $dwTime)
 	__MouseSetOnEvent_DoubleClickExpire(1, $iMsg, $iIDTimer, $dwTime)
 EndFunc
 
-Func __MouseSetOnEvent_GetDoubleClickData()
+Func __MouseSetOnEvent_GetDoubleClickData($iIndex = -1)
 	Local $aRet[3] = _
 		[ _
 			RegRead('HKEY_CURRENT_USER\Control Panel\Mouse', 'DoubleClickSpeed'), _
@@ -780,7 +808,52 @@ Func __MouseSetOnEvent_GetDoubleClickData()
 		$aRet[0] = $aGDCT[0]
 	EndIf
 	
+	If $iIndex >= 0 And $iIndex < 3 Then
+		Return $aRet[$iIndex]
+	EndIf
+	
 	Return $aRet
+EndFunc
+
+Func __MouseSetOnEvent_KillTimerEx($hWnd, $iTimerID)
+	Static $hCallBackPrev = 0
+	Local $aResult[1] = [0], $hCallBack = 0, $iUBound = UBound($__g_aTimers_aTimerIDs) - 1
+	
+	For $x = 1 To $iUBound
+		If $__g_aTimers_aTimerIDs[$x][0] = $iTimerID Then
+			If IsHWnd($hWnd) Then
+				$aResult = DllCall("user32.dll", "bool", "KillTimer", "hwnd", $hWnd, "uint_ptr", $__g_aTimers_aTimerIDs[$x][1])
+			Else
+				$aResult = DllCall("user32.dll", "bool", "KillTimer", "hwnd", $hWnd, "uint_ptr", $__g_aTimers_aTimerIDs[$x][0])
+			EndIf
+			
+			If @error Or $aResult[0] = 0 Then Return SetError(@error, @extended, False)
+			
+			$hCallBack = $__g_aTimers_aTimerIDs[$x][2]
+			
+			;If $hCallBack <> 0 Then DllCallbackFree($hCallBack) ; This line is causing the error
+			
+			If $hCallBackPrev <> 0 Then
+				DllCallbackFree($hCallBackPrev)
+				$hCallBackPrev = 0
+			EndIf
+			
+			If $hCallBack <> 0 Then $hCallBackPrev = $hCallBack
+			
+			For $i = $x To $iUBound - 1
+				$__g_aTimers_aTimerIDs[$i][0] = $__g_aTimers_aTimerIDs[$i + 1][0]
+				$__g_aTimers_aTimerIDs[$i][1] = $__g_aTimers_aTimerIDs[$i + 1][1]
+				$__g_aTimers_aTimerIDs[$i][2] = $__g_aTimers_aTimerIDs[$i + 1][2]
+			Next
+			
+			ReDim $__g_aTimers_aTimerIDs[UBound($__g_aTimers_aTimerIDs - 1)][3]
+			$__g_aTimers_aTimerIDs[0][0] -= 1
+			
+			ExitLoop
+		EndIf
+	Next
+	
+	Return $aResult[0] <> 0
 EndFunc
 
 Func __MouseSetOnEvent_OnExitFunc()
