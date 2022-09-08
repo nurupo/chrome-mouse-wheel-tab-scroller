@@ -26,6 +26,9 @@
 #AutoIt3Wrapper_Res_Fileversion=0.2.0.0
 #AutoIt3Wrapper_Res_LegalCopyright=Maxim Biro
 
+#include <Misc.au3>
+#include <MsgBoxConstants.au3>
+
 #include "MouseOnEvent.au3"
 
 ; Chrome offsets and class name
@@ -57,6 +60,11 @@ $registeredMouseCaptureMethod = Null
 $disabled = False
 
 Opt("WinWaitDelay", 0)
+
+If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
+    MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
+    Exit
+EndIf
 
 Opt("TrayMenuMode", 1+4)
 $trayReverse = TrayCreateItem("Reverse scroll direction")
