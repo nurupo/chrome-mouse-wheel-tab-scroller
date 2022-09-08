@@ -35,38 +35,40 @@ Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 
 Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
 Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
-$CFG_REVERSE = False
+Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
+     $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
+     $CFG_MOUSE_CAPTURE_METHOD_MAX
+
+$cfgReverse = False
+$cfgMouseCaptureMethod = Null
 
 Dim $HOOKS[2][2] = [ _
                       [$MOUSE_WHEELSCROLLUP_EVENT, "mouseWheelUp"], _
                       [$MOUSE_WHEELSCROLLDOWN_EVENT, "mouseWheelDown"] _
                    ]
+$registeredMouseCaptureMethod = Null
+$disabled = False
 
 Opt("TrayMenuMode", 1)
 $trayReverse = TrayCreateItem("Reverse scroll direction")
+$trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
+$trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
+$trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
 $trayExit = TrayCreateItem("Exit")
 TraySetClick(16)
 TraySetState()
 
 readConfig()
-
-If $CFG_REVERSE Then
-    TrayItemSetState($trayReverse, $TRAY_CHECKED)
-    swapHooks()
-EndIf
-
+processConfig()
 registerHooks()
 
 While 1
-    $msg = TrayGetMsg()
-    Select
-        Case $msg = $trayExit
-            Exit
-        Case $msg = $trayReverse
-            $CFG_REVERSE = Not $CFG_REVERSE
+    Switch TrayGetMsg()
+        Case $trayReverse
+            $cfgReverse = Not $cfgReverse
             writeConfig()
-            
+
             $trayDisableState = TrayItemGetState($trayDisable)
             If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
                 unregisterHooks()
@@ -75,30 +77,59 @@ While 1
             If BitAnd($trayDisableState, $TRAY_UNCHECKED) Then
                 registerHooks()
             EndIf
-        Case $msg = $trayDisable
+        Case $trayDisable
             $trayDisableState = TrayItemGetState($trayDisable)
             Select
                 Case BitAnd($trayDisableState, $TRAY_CHECKED)
                     TraySetIcon(@ScriptFullPath, 201)
                     unregisterHooks()
+                    $disabled = True
                 Case BitAnd($trayDisableState, $TRAY_UNCHECKED)
                     TraySetIcon(@ScriptFullPath, 99)
+                    $disabled = False
                     registerHooks()
             EndSelect
-    EndSelect
-
-    Sleep(10)
+        Case $trayMouseCaptureMethodHook
+            $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_HOOK
+            writeConfig()
+            unregisterHooks()
+            registerHooks()
+        Case $trayMouseCaptureMethodRawInput
+            $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
+            writeConfig()
+            unregisterHooks()
+            registerHooks()
+        Case $trayExit
+            Exit
+    EndSwitch
 WEnd
 
 Func registerHooks()
+    If $disabled Then
+        Return
+    EndIf
     For $i = 0 To UBound($HOOKS, 1) - 1
-        _MouseSetOnEvent($HOOKS[$i][0], $HOOKS[$i][1])
+        Switch $cfgMouseCaptureMethod
+            Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
+                _MouseSetOnEvent($HOOKS[$i][0], $HOOKS[$i][1], 0, $MOE_RUNDEFPROC)
+            Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
+                _MouseSetOnEvent_RI($HOOKS[$i][0], $HOOKS[$i][1])
+        EndSwitch
     Next
+    $registeredMouseCaptureMethod = $cfgMouseCaptureMethod
 EndFunc
 
 Func unregisterHooks()
+    If $disabled Then
+        Return
+    EndIf
     For $i = 0 To UBound($HOOKS, 1) - 1
-        _MouseSetOnEvent($HOOKS[$i][0])
+        Switch $registeredMouseCaptureMethod
+            Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
+                _MouseSetOnEvent($HOOKS[$i][0])
+            Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
+                _MouseSetOnEvent_RI($HOOKS[$i][0])
+        EndSwitch
     Next
 EndFunc
 
@@ -146,11 +177,30 @@ Func mouseWheelDown()
 EndFunc
 
 Func readConfig()
-    $CFG_REVERSE = IniRead($CFG_FILE_PATH, "options", "reverse", "False") == "True"
+    $cfgReverse = Int(IniRead($CFG_FILE_PATH, "options", "reverse", 0)) == 1
+    $cfgMouseCaptureMethod = Int(IniRead($CFG_FILE_PATH, "options", "mouseCaptureMethod", $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT))
+    If $cfgMouseCaptureMethod < 0 Or $cfgMouseCaptureMethod >= $CFG_MOUSE_CAPTURE_METHOD_MAX Then
+        ConsoleWrite("Warning: Incorrect value for the mouseCaptureMethod option in " & $CFG_FILE_PATH &", using the default: mouseCaptureMethod=" & $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT & @CRLF)
+        $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
+    EndIf
 EndFunc
 
 Func writeConfig()
     DirCreate($CFG_DIR_PATH)
-    
-    IniWrite($CFG_FILE_PATH, "options", "reverse", String($CFG_REVERSE))
+
+    IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
+    IniWrite($CFG_FILE_PATH, "options", "mouseCaptureMethod", $cfgMouseCaptureMethod)
+EndFunc
+
+Func processConfig()
+    If $cfgReverse Then
+        TrayItemSetState($trayReverse, $TRAY_CHECKED)
+    EndIf
+
+    Switch $cfgMouseCaptureMethod
+        Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
+            TrayItemSetState($trayMouseCaptureMethodHook, $TRAY_CHECKED)
+        Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
+            TrayItemSetState($trayMouseCaptureMethodRawInput, $TRAY_CHECKED)
+    EndSwitch
 EndFunc
