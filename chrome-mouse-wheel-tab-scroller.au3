@@ -20,7 +20,7 @@
 
 #AutoIt3Wrapper_UseUpx=n
 #AutoIt3Wrapper_icon=icon.ico
-#AutoIt3Wrapper_Res_Icon_Add=icon_disabled.ico
+#AutoIt3Wrapper_Res_Icon_Add=icon_disabled_right.ico
 #AutoIt3Wrapper_Res_ProductName=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
