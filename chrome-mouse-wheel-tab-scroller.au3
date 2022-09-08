@@ -21,13 +21,28 @@
 #AutoIt3Wrapper_UseUpx=n
 #AutoIt3Wrapper_icon=icon.ico
 #AutoIt3Wrapper_Res_Icon_Add=icon_disabled.ico
+#AutoIt3Wrapper_Res_ProductName=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_Fileversion=0.2.0.0
-#AutoIt3Wrapper_Res_LegalCopyright=Maxim Biro
+#AutoIt3Wrapper_Res_ProductVersion=1.0.0
+#AutoIt3Wrapper_Res_Fileversion=1.0.0.0
+#AutoIt3Wrapper_Res_CompanyName=Maxim Biro (nurupo)
+#AutoIt3Wrapper_Res_LegalCopyright=Copyright 2017-2022 Maxim Biro (nurupo)
 
+Const $PROJECT_HOMEPAGE_URL = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
+Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
+
+#include <EditConstants.au3>
+#include <GUIConstants.au3>
+#include <GUIConstantsEx.au3>
 #include <Misc.au3>
 #include <MsgBoxConstants.au3>
+#include <StaticConstants.au3>
+#include <TrayConstants.au3>
+#include <WinAPIRes.au3>
+#include <WinAPISys.au3>
+#include <WinAPISysWin.au3>
+#include <WindowsConstants.au3>
 
 #include "MouseOnEvent.au3"
 
@@ -57,6 +72,7 @@ Dim $HOOKS[2][2] = [ _
                       [$MOUSE_WHEELSCROLLDOWN_EVENT, "onMouseWheel"] _
                    ]
 $registeredMouseCaptureMethod = Null
+$aboutDialogExists = False
 $disabled = False
 
 Opt("WinWaitDelay", 0)
@@ -74,15 +90,22 @@ $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1
 $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
+$trayAbout = TrayCreateItem("About")
+TrayCreateItem("")
 $trayExit = TrayCreateItem("Exit")
-TraySetClick(16)
+TraySetClick($TRAY_CLICK_SECONDARYUP)
 TraySetState()
+TraySetToolTip(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME))
 
 readConfig()
 processConfig()
 registerHooks()
 
 While 1
+    processTrayEvents()
+WEnd
+
+Func processTrayEvents()
     Switch TrayGetMsg()
         Case $trayReverse
             $cfgReverse = Not $cfgReverse
@@ -130,10 +153,20 @@ While 1
             writeConfig()
             unregisterHooks()
             registerHooks()
+        Case $trayAbout
+            Local $trayAboutState = TrayItemGetState($trayAbout)
+            $trayAboutState = BitXOR($trayAboutState, $TRAY_CHECKED)
+            $trayAboutState = BitOR($trayAboutState, $TRAY_UNCHECKED)
+            TrayItemSetState($trayAbout, $trayAboutState)
+            If Not $aboutDialogExists Then
+                $aboutDialogExists = True
+                aboutDialog()
+                $aboutDialogExists = False
+            EndIf
         Case $trayExit
             Exit
     EndSwitch
-WEnd
+EndFunc
 
 Func registerHooks()
     If $disabled Then
@@ -251,4 +284,70 @@ Func processConfig()
         Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
             TrayItemSetState($trayMouseCaptureMethodRawInput, $TRAY_CHECKED)
     EndSwitch
+EndFunc
+
+Func aboutDialog()
+    $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST,$WS_EX_WINDOWEDGE))
+    ; Disable the maximize button (no layouting breaks the form when maximized)
+    _WinAPI_SetWindowLong(-1, $GWL_STYLE, BitXOr(_WinAPI_GetWindowLong(-1, $GWL_STYLE), $WS_MAXIMIZEBOX))
+    GUISetBkColor(0xFFFFFF)
+    GUICtrlCreateLabel(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 152, 16, 526, 31)
+    GUICtrlSetFont(-1, 18)
+    GUICtrlCreateIcon(@AutoItExe, 99, 8, 8, 128, 128)
+    GUICtrlCreateLabel(FileGetVersion(@AutoItExe, $FV_FILEDESCRIPTION), 152, 48, 526, 22)
+    GUICtrlSetFont(-1, 12)
+    GUICtrlCreateLabel(FileGetVersion(@AutoItExe, $FV_LEGALCOPYRIGHT), 152, 88, 526, 20)
+    GUICtrlSetFont(-1, 10)
+    GUICtrlCreateLabel("Version " & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION), 152, 112, 385, 20)
+    GUICtrlSetFont(-1, 10)
+    $labelHomepage = GUICtrlCreateLabel("Homepage", 544, 112, 66, 20)
+    GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
+    GUICtrlSetColor(-1, 0x0000FF)
+    GUICtrlSetCursor (-1, $MCID_HAND)
+    $labelDonate = GUICtrlCreateLabel("Donate", 624, 112, 45, 20)
+    GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
+    GUICtrlSetColor(-1, 0x0000FF)
+    GUICtrlSetCursor (-1, $MCID_HAND)
+    GUICtrlCreateEdit("", 8, 144, 665, 201, BitOR($ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $ES_READONLY, $ES_WANTRETURN, $WS_VSCROLL))
+    GUICtrlSetData(-1, StringFormat( _
+        FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & @CRLF & _
+        "Author: " & FileGetVersion(@AutoItExe, $FV_COMPANYNAME) & @CRLF & _
+        "Homepage: " & $PROJECT_HOMEPAGE_URL & @CRLF & _
+        "Donate: " & $PROJECT_DONATE_URL & @CRLF & _
+        "" & @CRLF & _
+        "Credits:" & @CRLF & _
+        "" & @CRLF & _
+        "MouseOnEvent UDF" & @CRLF & _
+        "Author: G.Sandler a.k.a (Mr)CreatoR (CreatoR"&Chr(39)&"s Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)" & @CRLF & _
+        "Homepage: https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/" & @CRLF & _
+        "" & @CRLF & _
+        "Google Chrome icon" & @CRLF & _
+        "Author: Just UI (https://www.iconfinder.com/justui)" & @CRLF & _
+        "Homepage: https://www.iconfinder.com/icons/1298719/chrome_google_icon" & @CRLF & _
+        "" & @CRLF & _
+        "tab icon" & @CRLF & _
+        "Author: Everaldo Coelho (http://www.everaldo.com/)" & @CRLF & _
+        "Homepage: https://www.iconfinder.com/icons/3256/tab_icon" & @CRLF & _
+        "" & @CRLF & _
+        "x icon" & @CRLF & _
+        "Author: iconpack (https://www.iconfinder.com/iconpack)" & @CRLF & _
+        "Homepage: https://www.iconfinder.com/icons/1398917/circle_close_cross_delete_incorrect_invalid_x_icon" _
+        ))
+    GUICtrlSetFont(-1, 10)
+    GUICtrlSetBkColor(-1, 0xFFFFFF)
+    GUISetState(@SW_SHOW)
+
+    While 1
+        Switch GUIGetMsg()
+            Case $GUI_EVENT_CLOSE
+                ExitLoop
+            Case $labelHomepage
+                ShellExecute($PROJECT_HOMEPAGE_URL)
+            Case $labelDonate
+                ShellExecute($PROJECT_DONATE_URL)
+        EndSwitch
+        processTrayEvents()
+    WEnd
+
+    GUIDelete($formAbout)
 EndFunc
