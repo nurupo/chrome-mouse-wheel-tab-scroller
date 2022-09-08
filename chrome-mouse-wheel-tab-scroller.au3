@@ -58,13 +58,14 @@ $disabled = False
 
 Opt("WinWaitDelay", 0)
 
-Opt("TrayMenuMode", 1)
+Opt("TrayMenuMode", 1+4)
 $trayReverse = TrayCreateItem("Reverse scroll direction")
 $trayAutofocus = TrayCreateItem("Autofocus window")
 $trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
 $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
+TrayItemSetState($trayDisable, $TRAY_DEFAULT)
 $trayExit = TrayCreateItem("Exit")
 TraySetClick(16)
 TraySetState()
@@ -87,6 +88,18 @@ While 1
                     $cfgAutofocus = 0
             EndSelect
             writeConfig()
+        Case $TRAY_EVENT_PRIMARYUP
+            Local $trayDisableState = TrayItemGetState($trayDisable)
+            Select
+                Case BitAND($trayDisableState, $TRAY_CHECKED)
+                    $trayDisableState = BitXOR($trayDisableState, $TRAY_CHECKED)
+                    $trayDisableState = BitOR($trayDisableState, $TRAY_UNCHECKED)
+                Case BitAND($trayDisableState, $TRAY_UNCHECKED)
+                    $trayDisableState = BitXOR($trayDisableState, $TRAY_UNCHECKED)
+                    $trayDisableState = BitOR($trayDisableState, $TRAY_CHECKED)
+            EndSelect
+            TrayItemSetState($trayDisable, $trayDisableState)
+            ContinueCase
         Case $trayDisable
             Local $trayDisableState = TrayItemGetState($trayDisable)
             Select
