@@ -1,12 +1,15 @@
 #Region Header
 
+; Modified version for the purposes of https://github.com/nurupo/chrome-mouse-wheel-tab-scroller
+; Specifically, to prevent this bug from happening https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/page/11/?tab=comments#comment-1506650
+
 #CS
 
     Title:          MouseOnEvent UDF
     Filename:       MouseOnEvent.au3
     Description:    Set an events handler for Mouse device.
     Author:         G.Sandler a.k.a (Mr)CreatoR (CreatoR's Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)
-    Version:        2.4
+    Version:        2.4 [modified]
     Requirements:   AutoIt v3.3.6.1 - 3.3.14.1, Developed/Tested on Win 7,10 (x86, x64), with standard 3-buttons mouse device.
     Uses:           WinAPIEx.au3, APIConstants.au3, WindowsConstants.au3, GUIConstantsEx.au3, Timers.au3
 	Forum Link:     http://www.autoitscript.com/forum/index.php?showtopic=64738
@@ -25,6 +28,8 @@
 							$a__MSOE_Events, $a__MSOE_Events_RI, $a__MSOE_PrmDblClk_Data, $a__MSOE_ScnDblClk_Data, $a__MSOE_XbtnDblClk_Data, $a__MSOE_RI_PrmDblClk_Data, $a__MSOE_RI_ScnDblClk_Data, $a__MSOE_RI_WhlDblClk_Data, $a__MSOE_RI_XbtnDblClk_Data
 					
     ChangLog:
+			unreleased [06.09.2022]
+			* Fixed event unregistering not working properly in some situations
 			v2.4 [15.03.2020]
 			* Fixed crash issue when runing under x64 script. Thanks to LarsJ (Gary Frost?).
 			* Added _MouseSetOnEvent_SetDblClckSpeed function to set double click speed.
@@ -534,7 +539,7 @@ Func __MouseSetOnEvent_MainHandler($nCode, $wParam, $lParam)
 				Return $MOE_RUNDEFPROC ;_WinAPI_CallNextHookEx($h__MSOE_MouseHook, $nCode, $wParam, $lParam) ;Allow default processing
 			EndIf
 			
-			$i__MSOE_EventReturn = 0
+			$i__MSOE_EventReturn = 1
 			$iBlockDefProc_Ret = $a__MSOE_Events[$i][3]
 			
 			If $iBlockDefProc_Ret = $MOE_RUNDEFPROC Then
