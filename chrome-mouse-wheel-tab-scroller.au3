@@ -52,6 +52,7 @@ Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
 Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
+Const $CHROME_CONTROL_CLASS = "[CLASS:Chrome_RenderWidgetHostHWND]"
 
 ; Config constants
 Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
@@ -76,6 +77,8 @@ $aboutDialogExists = False
 $disabled = False
 
 Opt("WinWaitDelay", 0)
+Opt("SendKeyDelay", 0)
+Opt("SendKeyDownDelay", 0)
 
 If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
     MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
@@ -240,14 +243,15 @@ Func handleAutofocus($windowHandle)
 EndFunc
 
 Func onMouseWheel($event)
-    If Not handleAutofocus(chromeWindowHandleWhenMouseInChromeTabsArea()) Then
+    Local $windowHandle = chromeWindowHandleWhenMouseInChromeTabsArea()
+    If Not $windowHandle Or Not handleAutofocus($windowHandle) Then
         Return
     EndIf
     Switch $event
         Case $MOUSE_WHEELSCROLLUP_EVENT
-            Send($cfgReverse ? "^{PGDN}" : "^{PGUP}")
+            ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
         Case $MOUSE_WHEELSCROLLDOWN_EVENT
-            Send($cfgReverse ? "^{PGUP}" : "^{PGDN}")
+            ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
     EndSwitch
 EndFunc
 
