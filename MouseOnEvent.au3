@@ -1,7 +1,7 @@
 #Region Header
 
 ; Modified version for the purposes of https://github.com/nurupo/chrome-mouse-wheel-tab-scroller
-; Specifically, to prevent this bug from happening https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/page/11/?tab=comments#comment-1506650
+; See the changelog below and the git history
 
 #CS
 
@@ -28,8 +28,12 @@
 							$a__MSOE_Events, $a__MSOE_Events_RI, $a__MSOE_PrmDblClk_Data, $a__MSOE_ScnDblClk_Data, $a__MSOE_XbtnDblClk_Data, $a__MSOE_RI_PrmDblClk_Data, $a__MSOE_RI_ScnDblClk_Data, $a__MSOE_RI_WhlDblClk_Data, $a__MSOE_RI_XbtnDblClk_Data
 					
     ChangLog:
+			unreleased [18.09.2022]
+			* Removed $MOUSE_MOVE_EVENT from RI as it was overwriting other events, see https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/page/11/?tab=comments#comment-1507046
+			
 			unreleased [06.09.2022]
-			* Fixed event unregistering not working properly in some situations
+			* Fixed event unregistering not working properly in some situations, see https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/page/11/?tab=comments#comment-1506650
+			
 			v2.4 [15.03.2020]
 			* Fixed crash issue when runing under x64 script. Thanks to LarsJ (Gary Frost?).
 			* Added _MouseSetOnEvent_SetDblClckSpeed function to set double click speed.
@@ -165,7 +169,6 @@ GUIRegisterMsg($i__MSOE_WM_CALL, '__MouseSetOnEvent_WM_CALL')
 
 #Region Public Constants
 
-Global Const $MOUSE_MOVE_EVENT				= 0x200 		;512 (WM_MOUSEMOVE) 		; ==> Mouse moving.
 Global Const $MOUSE_PRIMARYDOWN_EVENT		= 0x201 		;513 (WM_LBUTTONDOWN) 		; ==> Primary mouse button down.
 Global Const $MOUSE_PRIMARYUP_EVENT			= 0x202 		;514 (WM_LBUTTONUP) 		; ==> Primary mouse button up.
 Global Const $MOUSE_PRIMARYDBLCLK_EVENT		= 0x203 		;515 (WM_LBUTTONDBLCLK) 	; ==> Primary mouse button double click.
@@ -639,10 +642,6 @@ Func __MouseSetOnEvent_MainHandler_RI($hWnd, $iMsg, $wParam, $lParam)
 				EndSelect
 			EndIf
 	EndSwitch
-	
-	If DllStructGetData($tRIM, 'LastX') + DllStructGetData($tRIM, 'LastY') <> 0 Then
-		$iEvent = $MOUSE_MOVE_EVENT
-	EndIf
 	
 	If $iEvent = 0 Then
 		Return $GUI_RUNDEFMSG
