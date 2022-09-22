@@ -39,6 +39,7 @@ Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 #include <MsgBoxConstants.au3>
 #include <StaticConstants.au3>
 #include <TrayConstants.au3>
+#include <WinAPIProc.au3>
 #include <WinAPIRes.au3>
 #include <WinAPISys.au3>
 #include <WinAPISysWin.au3>
@@ -60,10 +61,14 @@ Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
 Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
      $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
      $CFG_MOUSE_CAPTURE_METHOD_MAX
+Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
+     $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
+     $CFG_AUTOFOCUS_AFTERWARDS_MAX
 
 ; Config state
 $cfgReverse = Null
 $cfgAutofocus = Null
+$cfgAutofocusAfterwards = Null
 $cfgMouseCaptureMethod = Null
 
 ; Other application state
@@ -76,7 +81,7 @@ $registeredMouseCaptureMethod = Null
 $aboutDialogExists = False
 $disabled = False
 
-Opt("WinWaitDelay", 0)
+Opt("WinWaitDelay", 1)
 Opt("SendKeyDelay", 0)
 Opt("SendKeyDownDelay", 0)
 
@@ -86,8 +91,11 @@ If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
 EndIf
 
 Opt("TrayMenuMode", 1+4)
-$trayReverse = TrayCreateItem("Reverse scroll direction")
-$trayAutofocus = TrayCreateItem("Autofocus window")
+$trayReverse = TrayCreateItem("Reverse the scroll direction")
+$trayAutofocus = TrayCreateItem("Autofocus Chrome")
+$trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
+$trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+$trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
 $trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
 $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
 $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
@@ -156,6 +164,12 @@ Func processTrayEvents()
             writeConfig()
             unregisterHooks()
             registerHooks()
+        Case $trayAutofocusAfterwardsKeep
+            $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+            writeConfig()
+        Case $trayAutofocusAfterwardsUndo
+            $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+            writeConfig()
         Case $trayAbout
             Local $trayAboutState = TrayItemGetState($trayAbout)
             $trayAboutState = BitXOR($trayAboutState, $TRAY_CHECKED)
@@ -227,37 +241,150 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
     Return 0
 EndFunc
 
-; True if we should proceed with switching tabs, False otherwise
-Func handleAutofocus($windowHandle)
-    Local $windowStateBitmask = WinGetState($windowHandle)
-    If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
-        return True
-    EndIf
-    If Not $cfgAutofocus Then
-        return False
-    Else
-        Return _
-            WinActivate($windowHandle) <> 0 And _
-            WinWaitActive($windowHandle, "", 1) <> 0
-    EndIf
-EndFunc
-
+; This function might get called again in the middle if it already executing,
+; e.g. if a user makes a couple of mouse wheel events in a short succession.
+; This is due to some function calls used within this function processing the
+; event loop inside, resulting in the next mouse wheel event being processed
+; before the last one is done processing. This is undesirable, so to make sure
+; that only one function call is processing the mouse wheel events, we enqueue
+; the events and use a processing flag as a guard. The function is always
+; called from the same thread, so it's not a multi-threading issue but rather
+; an unintentional indirect recursion one.
 Func onMouseWheel($event)
     Local $windowHandle = chromeWindowHandleWhenMouseInChromeTabsArea()
-    If Not $windowHandle Or Not handleAutofocus($windowHandle) Then
+    If Not $windowHandle Then
         Return
     EndIf
-    Switch $event
-        Case $MOUSE_WHEELSCROLLUP_EVENT
-            ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
-        Case $MOUSE_WHEELSCROLLDOWN_EVENT
-            ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
-    EndSwitch
+    ; we assume that all queued events operate on the same Chrome window $windowHandle as in level 1 recursion, so we don't enqueue the $windowHandle along with the event
+    Static $processing = False
+    Static $eventList[128] ; from some testing, i find it hard to exceed 128, although not impossible, so that's a good starting capacity
+    Static $eventListSize = 0
+    ; enqueue the event
+    ; make sure the queue is big enough
+    If $eventListSize == UBound($eventList) Then
+        ReDim $eventList[Int(($eventListSize * 1.5) + 1)] ; we don't size down the array, but that should be fine (tm)
+    EndIf
+    $eventList[$eventListSize] = $event
+    $eventListSize += 1
+    ; return if we are not the first recusion level, let the first recursion level process all the events
+    If $processing Then
+        Return
+    EndIf
+    $processing = True
+    While $eventListSize > 0
+        Local $processed = False
+        Local $windowStateBitmask = WinGetState($windowHandle)
+        If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
+            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+            $processed = True
+        ElseIf $cfgAutofocus Then
+            Switch $cfgAutofocusAfterwards
+                Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+                    If WinActivate($windowHandle) <> 0 And WinWaitActive($windowHandle, "", 1) <> 0 Then
+                        dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+                        $processed = True
+                    EndIf
+                Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+                    Local $initiallyActive = WinGetHandle("[ACTIVE]")
+                    Local $initialWinList = WinList()
+                    Dim $topmostWinList[$initialWinList[0][0]+1]
+                    Local $foundIndex = -1
+                    Local $setWindowPosCount = 0
+                    ; figure out which windows we want to make temporarily topmost and which are already topmost
+                    For $i = 1 to $initialWinList[0][0]
+                        If $initialWinList[$i][1] == $windowHandle Then
+                            $foundIndex = $i
+                        EndIf
+                        $topmostWinList[$i] = False
+                        Local $state = WinGetState($initialWinList[$i][1])
+                        If BitAND($state, $WIN_STATE_VISIBLE) And Not BitAND($state, $WIN_STATE_MINIMIZED) Then
+                            $topmostWinList[$i] = BitAND(_WinAPI_GetWindowLong($initialWinList[$i][1], $GWL_EXSTYLE), $WS_EX_TOPMOST) == $WS_EX_TOPMOST
+                            If ($foundIndex == -1 And $initialWinList[$i][0] <> "") Or $topmostWinList[$i] Then
+                                $setWindowPosCount += 1
+                            Else
+                                $initialWinList[$i][1] = 0
+                            EndIf
+                        Else
+                            $initialWinList[$i][1] = 0
+                        EndIf
+                    Next
+                    If $foundIndex > 0 And $setWindowPosCount > 0 Then
+                        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+                        ; first move non-topmost windows to the top (by making them temporarily topmost)
+                        For $i = $foundIndex-1 To 1 Step -1
+                            If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
+                                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                                ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                            EndIf
+                        Next
+                        ; then move all of the topmost ones to the top, over the temporarily topmost ones
+                        For $i = $initialWinList[0][0] To 1 Step -1
+                            If $initialWinList[$i][1] And $topmostWinList[$i] Then
+                                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                                ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                            EndIf
+                        Next
+                        _WinAPI_EndDeferWindowPos($windowPosInfo)
+                        If WinActivate($windowHandle) <> 0 And WinWaitActive($windowHandle, "", 1) <> 0 Then
+                            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+                            $processed = True
+                        EndIf
+                        ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
+                        Do
+                            Local $count = 0
+                            $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+                            For $i = $foundIndex-1 To 1 Step -1
+                                If $initialWinList[$i][1] And Not $topmostWinList[$i] And WinExists($initialWinList[$i][1]) Then
+                                    $count += 1
+                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                                    ;ConsoleWrite("-tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                                    ; it might fail if a window has disappeared, so re-do the whole Defer setup without that window
+                                    If Not $windowPosInfo Then
+                                        ;ConsoleWrite("! removing" & @CRLF)
+                                        $initialWinList[$i][1] = 0
+                                        ExitLoop
+                                    EndIf
+                                EndIf
+                            Next
+                            Local $windowPosSuccess = False
+                            If $windowPosInfo Then
+                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+                            EndIf
+                        Until $windowPosSuccess Or $count == 0
+                        WinActivate($initiallyActive)
+                        WinWaitActive($initiallyActive, "", 1)
+                    EndIf
+            EndSwitch
+        EndIf
+        ; discard the event queue if we can't process it
+        If Not $processed Then
+            $eventListSize = 0
+        EndIf
+    WEnd
+    $processing = False
+EndFunc
+
+Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
+    While $eventListSize > 0
+        $eventListSize -= 1
+        $event = $eventList[$eventListSize]
+        Switch $event
+            Case $MOUSE_WHEELSCROLLUP_EVENT
+                ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
+            Case $MOUSE_WHEELSCROLLDOWN_EVENT
+                ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
+        EndSwitch
+    WEnd
 EndFunc
 
 Func readConfig()
     $cfgReverse = Int(IniRead($CFG_FILE_PATH, "options", "reverse", 0)) == 1
     $cfgAutofocus = Int(IniRead($CFG_FILE_PATH, "options", "autofocus", 1)) == 1
+    $cfgAutofocusAfterwards = Int(IniRead($CFG_FILE_PATH, "options", "autofocusAfterwards", $CFG_AUTOFOCUS_AFTERWARDS_KEEP))
+    If $cfgAutofocusAfterwards < 0 Or $cfgAutofocusAfterwards >= $CFG_AUTOFOCUS_AFTERWARDS_MAX Then
+        ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH &", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
+        $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+    EndIf
     $cfgMouseCaptureMethod = Int(IniRead($CFG_FILE_PATH, "options", "mouseCaptureMethod", $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT))
     If $cfgMouseCaptureMethod < 0 Or $cfgMouseCaptureMethod >= $CFG_MOUSE_CAPTURE_METHOD_MAX Then
         ConsoleWrite("Warning: Incorrect value for the mouseCaptureMethod option in " & $CFG_FILE_PATH &", using the default: mouseCaptureMethod=" & $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT & @CRLF)
@@ -270,6 +397,7 @@ Func writeConfig()
 
     IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
     IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
+    IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", $cfgAutofocusAfterwards)
     IniWrite($CFG_FILE_PATH, "options", "mouseCaptureMethod", $cfgMouseCaptureMethod)
 EndFunc
 
@@ -281,6 +409,13 @@ Func processConfig()
     If $cfgAutofocus Then
         TrayItemSetState($trayAutofocus, $TRAY_CHECKED)
     EndIf
+
+    Switch $cfgAutofocusAfterwards
+        Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+            TrayItemSetState($trayAutofocusAfterwardsKeep, $TRAY_CHECKED)
+        Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+            TrayItemSetState($trayAutofocusAfterwardsUndo, $TRAY_CHECKED)
+    EndSwitch
 
     Switch $cfgMouseCaptureMethod
         Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
