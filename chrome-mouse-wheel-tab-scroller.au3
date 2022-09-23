@@ -227,10 +227,12 @@ EndFunc
 
 Func _WinWaitActive($windowHandle, $unused, $timeout)
     Local $timer = TimerInit()
+    Local $activeFlag = Null
     Do
         Local $state = WinGetState($windowHandle)
-    Until BitAND($state, $WIN_STATE_ACTIVE) Or TimerDiff($timer) >= $timeout*1000
-    Return 1
+        $activeFlag = BitAND($state, $WIN_STATE_ACTIVE)
+    Until $activeFlag Or TimerDiff($timer) >= $timeout*1000
+    Return $activeFlag ? $windowHandle : 0
 EndFunc
 
 ; This function might get called again in the middle if it already executing,
