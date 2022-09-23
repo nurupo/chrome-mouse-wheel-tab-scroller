@@ -37,13 +37,22 @@ Alternatively, you can run the AutoIt script `chrome-mouse-wheel-tab-scroller.au
 
 ### Mouse is moving weirdly
 
-You can temporarily disable the program by left-clicking on its icon in the tray, or alternatively right-clicking and selecting "Disable". The tray icon will change to one with a little red x symbol, signifying that it's disabled.
+This could happen in the previous versions of the program, but the newer versions (v1.0.0 and newer) have switched to using the Raw Input mouse capture method which shouldn't affect the mouse movement.
+
+You can temporarily disable the program by left-clicking on its icon in the tray, or alternatively right-clicking and selecting "Disable".
+The tray icon will show a little red x symbol in a corner, signifying that the program is disabled.
+
+### Autofocus stops working
+
+Because the program runs with regular user's privileges, if the currently focused window is a privileged window, e.g. the Task Manager running as Administrator, Windows prevents the program from capturing the mouse input, so it doesn't know that you are scrolling the mouse wheel and thus is unable to function.
+To work around this, you can run the program as Administrator or just not have a privileged window being in focus.
 
 ### Antivirus flags the program
 
 Antiviruses might incorrectly flag  the .exe as malicious, as AutoIt is often used by [script kiddies](https://en.wikipedia.org/wiki/Script_kiddie) and the way it creates .exe files is by combining AutoIt.exe and a script into a single .exe file, so all AutoIt .exes are very similar bit-wise and prone to false positives from antiviruses.
 
-You don't have to trust my executable if you don't want to. As long as you trust the source code, you can [install AutoIt](https://www.autoitscript.com/site/autoit/downloads/) and run the .au3 file directly, or build your own .exe out of it, which AutoIt makes very easy to do.
+You don't have to trust my executable if you don't want to.
+As long as you trust the source code, you can [install AutoIt](https://www.autoitscript.com/site/autoit/downloads/) and run the .au3 file directly, or build your own .exe out of it, which AutoIt makes very easy to do.
 
 ## Attribution
 
