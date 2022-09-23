@@ -45,8 +45,6 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 #include <WinAPISysWin.au3>
 #include <WindowsConstants.au3>
 
-#include "MouseOnEvent.au3"
-
 Opt("MustDeclareVars", 1)
 
 ; Chrome offsets and class name
@@ -60,9 +58,6 @@ Global Const $CHROME_CONTROL_CLASS = "[CLASS:Chrome_RenderWidgetHostHWND]"
 ; Config constants
 Global Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
 Global Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
-Global Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
-            $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
-            $CFG_MOUSE_CAPTURE_METHOD_MAX
 Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
             $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
             $CFG_AUTOFOCUS_AFTERWARDS_MAX
@@ -71,14 +66,10 @@ Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
 Global $cfgReverse = Null
 Global $cfgAutofocus = Null
 Global $cfgAutofocusAfterwards = Null
-Global $cfgMouseCaptureMethod = Null
 
 ; Other application state
-Global $HOOKS[2][2] =   [ _
-                            [$MOUSE_WHEELSCROLLUP_EVENT, "onMouseWheel"], _
-                            [$MOUSE_WHEELSCROLLDOWN_EVENT, "onMouseWheel"] _
-                        ]
-Global $registeredMouseCaptureMethod = Null
+Global Enum $MOUSE_WHEEL_SCROLL_UP_EVENT, _
+            $MOUSE_WHEEL_SCROLL_DOWN_EVENT
 Global $disabled = False
 
 Opt("WinWaitDelay", 1)
@@ -90,16 +81,16 @@ If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
     Exit
 EndIf
 
+Global Const $inputHandlerForm = GUICreate(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " Raw Input Handler Window")
+setupRawInputHandler()
+
 Opt("TrayMenuMode", 1+4)
 Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
 Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
 Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
 Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
 Global $trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
-Global $trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
-Global $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
-Global $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
-Global $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
+Global $trayDisable = TrayCreateItem("Disable")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
 Global $trayAbout = TrayCreateItem("About")
 TrayCreateItem("")
@@ -110,7 +101,6 @@ TraySetToolTip(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME))
 
 readConfig()
 processConfig()
-registerHooks()
 
 While 1
     processTrayEvents()
@@ -147,23 +137,11 @@ Func processTrayEvents()
             Select
                 Case BitAND($trayDisableState, $TRAY_CHECKED)
                     TraySetIcon(@ScriptFullPath, 201)
-                    unregisterHooks()
                     $disabled = True
                 Case BitAND($trayDisableState, $TRAY_UNCHECKED)
                     TraySetIcon(@ScriptFullPath, 99)
                     $disabled = False
-                    registerHooks()
             EndSelect
-        Case $trayMouseCaptureMethodHook
-            $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_HOOK
-            writeConfig()
-            unregisterHooks()
-            registerHooks()
-        Case $trayMouseCaptureMethodRawInput
-            $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
-            writeConfig()
-            unregisterHooks()
-            registerHooks()
         Case $trayAutofocusAfterwardsKeep
             $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
             writeConfig()
@@ -186,33 +164,32 @@ Func processTrayEvents()
     EndSwitch
 EndFunc
 
-Func registerHooks()
-    If $disabled Then
-        Return
-    EndIf
-    For $i = 0 To UBound($HOOKS, 1) - 1
-        Switch $cfgMouseCaptureMethod
-            Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
-                _MouseSetOnEvent($HOOKS[$i][0], $HOOKS[$i][1], 0, $MOE_RUNDEFPROC)
-            Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
-                _MouseSetOnEvent_RI($HOOKS[$i][0], $HOOKS[$i][1])
-        EndSwitch
-    Next
-    $registeredMouseCaptureMethod = $cfgMouseCaptureMethod
+Func setupRawInputHandler()
+    Local $tRID = DllStructCreate($tagRAWINPUTDEVICE)
+    DllStructSetData($tRID, "UsagePage", 0x01) ; Generic Desktop Controls
+    DllStructSetData($tRID, "Usage", 0x02) ; Mouse
+    DllStructSetData($tRID, "Flags", $RIDEV_INPUTSINK)
+    DllStructSetData($tRID, "hTarget", $inputHandlerForm)
+    _WinAPI_RegisterRawInputDevices($tRID)
+    GUIRegisterMsg($WM_INPUT, "WM_INPUT")
 EndFunc
 
-Func unregisterHooks()
+Func WM_INPUT($hWnd, $iMsg, $wParam, $lParam)
+    #forceref $iMsg, $wParam
+    If $hWnd <> $inputHandlerForm Then
+        Return
+    EndIf
     If $disabled Then
         Return
     EndIf
-    For $i = 0 To UBound($HOOKS, 1) - 1
-        Switch $registeredMouseCaptureMethod
-            Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
-                _MouseSetOnEvent($HOOKS[$i][0])
-            Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
-                _MouseSetOnEvent_RI($HOOKS[$i][0])
-        EndSwitch
-    Next
+    Local $tRIM = DllStructCreate($tagRAWINPUTMOUSE)
+    If Not _WinAPI_GetRawInputData($lParam, $tRIM, DllStructGetSize($tRIM), $RID_INPUT) Then
+        Return
+    EndIf
+    Local $iFlags = DllStructGetData($tRIM, 'ButtonFlags')
+    If BitAND($iFlags, $RI_MOUSE_WHEEL) Then
+        onMouseWheel(_WinAPI_WordToShort(DllStructGetData($tRIM, 'ButtonData')) > 0 ? $MOUSE_WHEEL_SCROLL_UP_EVENT : $MOUSE_WHEEL_SCROLL_DOWN_EVENT)
+    EndIf
 EndFunc
 
 Func chromeWindowHandleWhenMouseInChromeTabsArea()
@@ -326,7 +303,8 @@ Func onMouseWheel($event)
                                 ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
                             EndIf
                         Next
-                        _WinAPI_EndDeferWindowPos($windowPosInfo)
+                        Local $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+                        ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
                         If WinActivate($windowHandle) <> 0 And WinWaitActive($windowHandle, "", 1) <> 0 Then
                             dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                             $processed = True
@@ -348,9 +326,10 @@ Func onMouseWheel($event)
                                     EndIf
                                 EndIf
                             Next
-                            Local $windowPosSuccess = False
+                            $windowPosSuccess = False
                             If $windowPosInfo Then
                                 $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
                             EndIf
                         Until $windowPosSuccess Or $count == 0
                         WinActivate($initiallyActive)
@@ -371,9 +350,9 @@ Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSi
         $eventListSize -= 1
         Local $event = $eventList[$eventListSize]
         Switch $event
-            Case $MOUSE_WHEELSCROLLUP_EVENT
+            Case $MOUSE_WHEEL_SCROLL_UP_EVENT
                 ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
-            Case $MOUSE_WHEELSCROLLDOWN_EVENT
+            Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
                 ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
         EndSwitch
     WEnd
@@ -387,11 +366,6 @@ Func readConfig()
         ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH &", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
         $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
     EndIf
-    $cfgMouseCaptureMethod = Int(IniRead($CFG_FILE_PATH, "options", "mouseCaptureMethod", $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT))
-    If $cfgMouseCaptureMethod < 0 Or $cfgMouseCaptureMethod >= $CFG_MOUSE_CAPTURE_METHOD_MAX Then
-        ConsoleWrite("Warning: Incorrect value for the mouseCaptureMethod option in " & $CFG_FILE_PATH &", using the default: mouseCaptureMethod=" & $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT & @CRLF)
-        $cfgMouseCaptureMethod = $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
-    EndIf
 EndFunc
 
 Func writeConfig()
@@ -400,7 +374,6 @@ Func writeConfig()
     IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
     IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
     IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", $cfgAutofocusAfterwards)
-    IniWrite($CFG_FILE_PATH, "options", "mouseCaptureMethod", $cfgMouseCaptureMethod)
 EndFunc
 
 Func processConfig()
@@ -417,13 +390,6 @@ Func processConfig()
             TrayItemSetState($trayAutofocusAfterwardsKeep, $TRAY_CHECKED)
         Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
             TrayItemSetState($trayAutofocusAfterwardsUndo, $TRAY_CHECKED)
-    EndSwitch
-
-    Switch $cfgMouseCaptureMethod
-        Case $CFG_MOUSE_CAPTURE_METHOD_HOOK
-            TrayItemSetState($trayMouseCaptureMethodHook, $TRAY_CHECKED)
-        Case $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT
-            TrayItemSetState($trayMouseCaptureMethodRawInput, $TRAY_CHECKED)
     EndSwitch
 EndFunc
 
@@ -457,10 +423,6 @@ Func aboutDialog()
         "Donate: " & $PROJECT_DONATE_URL & @CRLF & _
         "" & @CRLF & _
         "Credits:" & @CRLF & _
-        "" & @CRLF & _
-        "MouseOnEvent UDF" & @CRLF & _
-        "Author: G.Sandler a.k.a (Mr)CreatoR (CreatoR"&Chr(39)&"s Lab - http://creator-lab.ucoz.ru, http://autoit-script.ru)" & @CRLF & _
-        "Homepage: https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/" & @CRLF & _
         "" & @CRLF & _
         "Google Chrome icon" & @CRLF & _
         "Author: Just UI (https://www.iconfinder.com/justui)" & @CRLF & _

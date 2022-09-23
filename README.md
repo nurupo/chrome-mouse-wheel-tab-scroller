@@ -37,13 +37,7 @@ Alternatively, you can run the AutoIt script `chrome-mouse-wheel-tab-scroller.au
 
 ### Mouse is moving weirdly
 
-The program might affect mouse performance, especially in video games.
-
-If this happens to you, you can try changing the mouse capture method in the tray menu -- some might work better than other. If that doesn't help, you can try restarting the program.
-
-You can also temporarily disable the program by left-clicking on it in the tray, or alternatively right-clicking and selecting "Disable (Gaming Mode)". The tray icon will change to one with a little red x symbol, signifying that it's disabled.
-
-From my limited testing in Team Fortress 2, the Hook mouse capture method causes the mouse to behave weirdly in-game, while the Raw Input mouse capture method doesn't seem to affect the mouse performance (which is why it is the default).
+You can temporarily disable the program by left-clicking on its icon in the tray, or alternatively right-clicking and selecting "Disable". The tray icon will change to one with a little red x symbol, signifying that it's disabled.
 
 ### Antivirus flags the program
 
@@ -52,8 +46,6 @@ Antiviruses might incorrectly flag  the .exe as malicious, as AutoIt is often us
 You don't have to trust my executable if you don't want to. As long as you trust the source code, you can [install AutoIt](https://www.autoitscript.com/site/autoit/downloads/) and run the .au3 file directly, or build your own .exe out of it, which AutoIt makes very easy to do.
 
 ## Attribution
-
-This script uses [MouseOnEvent UDF](https://www.autoitscript.com/forum/topic/64738-mouseonevent-udf/), which is included in the repository for the convenience.
 
 The application icon is a combination of:
 
@@ -65,4 +57,4 @@ The application icon is a combination of:
 
 chrome-mouse-wheel-tab-scroller.au3 -- GPL-3.0-only.
 
-The icons and MouseOnEvent UDF are licensed differently.
+The icons are licensed differently.
