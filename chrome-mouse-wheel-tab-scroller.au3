@@ -220,6 +220,14 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
     Return 0
 EndFunc
 
+Func _WinWaitActive($windowHandle, $unused, $timeout)
+    Local $timer = TimerInit()
+    Do
+        Local $state = WinGetState($windowHandle)
+    Until BitAND($state, $WIN_STATE_ACTIVE) Or TimerDiff($timer) >= $timeout*1000
+    Return 1
+EndFunc
+
 ; This function might get called again in the middle if it already executing,
 ; e.g. if a user makes a couple of mouse wheel events in a short succession.
 ; This is due to some function calls used within this function processing the
@@ -259,7 +267,7 @@ Func onMouseWheel($event)
         ElseIf $cfgAutofocus Then
             Switch $cfgAutofocusAfterwards
                 Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
-                    If WinActivate($windowHandle) <> 0 And WinWaitActive($windowHandle, "", 1) <> 0 Then
+                    If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
                         dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                         $processed = True
                     EndIf
@@ -305,7 +313,7 @@ Func onMouseWheel($event)
                         Next
                         Local $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
                         ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
-                        If WinActivate($windowHandle) <> 0 And WinWaitActive($windowHandle, "", 1) <> 0 Then
+                        If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
                             dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                             $processed = True
                         EndIf
@@ -333,7 +341,7 @@ Func onMouseWheel($event)
                             EndIf
                         Until $windowPosSuccess Or $count == 0
                         WinActivate($initiallyActive)
-                        WinWaitActive($initiallyActive, "", 1)
+                        _WinWaitActive($initiallyActive, "", 1)
                     EndIf
             EndSwitch
         EndIf
