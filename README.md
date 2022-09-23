@@ -10,9 +10,9 @@ In action:
 
 ![Animation showing tab switching](https://i.imgur.com/UksPxCz.gif)
 
-Tray menu (as of v1.0.0):
+Tray menu (as of v2.0.0):
 
-![Screenshot of the tray menu](https://i.imgur.com/TSDYKeH.png)
+![Screenshot of the tray menu](https://i.imgur.com/eGOREZ6.png)
 
 ## Motivation
 
