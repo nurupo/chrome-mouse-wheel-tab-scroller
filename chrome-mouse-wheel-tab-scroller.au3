@@ -24,8 +24,8 @@
 #AutoIt3Wrapper_Res_ProductName=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
 #AutoIt3Wrapper_Res_Description=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_ProductVersion=1.0.0
-#AutoIt3Wrapper_Res_Fileversion=1.0.0.0
+#AutoIt3Wrapper_Res_ProductVersion=2.0.0
+#AutoIt3Wrapper_Res_Fileversion=2.0.0.0
 #AutoIt3Wrapper_Res_CompanyName=Maxim Biro (nurupo)
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright 2017-2022 Maxim Biro (nurupo)
 
