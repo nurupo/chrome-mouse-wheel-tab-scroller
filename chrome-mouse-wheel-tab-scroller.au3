@@ -301,23 +301,43 @@ Func onMouseWheel($event)
                         EndIf
                     Next
                     If $foundIndex > 0 And $setWindowPosCount > 0 Then
-                        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
-                        ; first move non-topmost windows to the top (by making them temporarily topmost)
-                        For $i = $foundIndex-1 To 1 Step -1
-                            If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
-                                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                        Do
+                            Local $count = 0
+                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+                            ; first move non-topmost windows to the top (by making them temporarily topmost)
+                            For $i = $foundIndex-1 To 1 Step -1
+                                If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
+                                    $count += 1
+                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                                    ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                                    If Not $windowPosInfo Then
+                                        ;ConsoleWrite("! removing" & @CRLF)
+                                        $initialWinList[$i][1] = 0
+                                        ExitLoop
+                                    EndIf
+                                EndIf
+                            Next
+                            ; then move all of the topmost ones to the top, over the temporarily topmost ones
+                            If $windowPosInfo Then
+                                For $i = $initialWinList[0][0] To 1 Step -1
+                                    If $initialWinList[$i][1] And $topmostWinList[$i] Then
+                                        $count += 1
+                                        $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                                        ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                                        If Not $windowPosInfo Then
+                                            ;ConsoleWrite("! removing" & @CRLF)
+                                            $initialWinList[$i][1] = 0
+                                            ExitLoop
+                                        EndIf
+                                    EndIf
+                                Next
                             EndIf
-                        Next
-                        ; then move all of the topmost ones to the top, over the temporarily topmost ones
-                        For $i = $initialWinList[0][0] To 1 Step -1
-                            If $initialWinList[$i][1] And $topmostWinList[$i] Then
-                                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                            Local $windowPosSuccess = False
+                            If $windowPosInfo Then
+                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
                             EndIf
-                        Next
-                        Local $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
-                        ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
+                        Until $windowPosSuccess Or $count == 0
                         If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
                             dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                             $processed = True
@@ -325,7 +345,7 @@ Func onMouseWheel($event)
                         ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
                         Do
                             Local $count = 0
-                            $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
                             For $i = $foundIndex-1 To 1 Step -1
                                 If $initialWinList[$i][1] And Not $topmostWinList[$i] And WinExists($initialWinList[$i][1]) Then
                                     $count += 1
@@ -339,7 +359,7 @@ Func onMouseWheel($event)
                                     EndIf
                                 EndIf
                             Next
-                            $windowPosSuccess = False
+                            Local $windowPosSuccess = False
                             If $windowPosInfo Then
                                 $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
                                 ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
