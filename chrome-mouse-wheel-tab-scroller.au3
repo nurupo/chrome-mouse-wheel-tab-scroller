@@ -48,8 +48,8 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 Opt("MustDeclareVars", 1)
 
 ; Chrome offsets and class name
-Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
-Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
+Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
+Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 46
 Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
 Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 Global Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
@@ -201,6 +201,11 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
     Local $className = _WinAPI_GetClassName($windowHandle)
     If StringLeft($className, StringLen($CHROME_WINDOW_CLASS_NAME_PREFIX)) <> $CHROME_WINDOW_CLASS_NAME_PREFIX Then
         Return 0
+    EndIf
+    Local $title = WinGetTitle($windowHandle)
+    If $title == "" Then
+        ; it's a tab preview window handle, let us get a handle to the actual Chrome window
+        $windowHandle = _WinAPI_GetAncestor($windowHandle, $GA_ROOTOWNER)
     EndIf
     Local $windowPos = WinGetPos($windowHandle)
     Local $windowStateBitmask = WinGetState($windowHandle)
