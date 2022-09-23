@@ -29,8 +29,8 @@
 #AutoIt3Wrapper_Res_CompanyName=Maxim Biro (nurupo)
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright 2017-2022 Maxim Biro (nurupo)
 
-Const $PROJECT_HOMEPAGE_URL = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
-Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
+Global Const $PROJECT_HOMEPAGE_URL = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
+Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 
 #include <EditConstants.au3>
 #include <GUIConstants.au3>
@@ -47,39 +47,39 @@ Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 
 #include "MouseOnEvent.au3"
 
+Opt("MustDeclareVars", 1)
+
 ; Chrome offsets and class name
-Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
-Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
-Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
-Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
-Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
-Const $CHROME_CONTROL_CLASS = "[CLASS:Chrome_RenderWidgetHostHWND]"
+Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 28
+Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 48
+Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
+Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
+Global Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
+Global Const $CHROME_CONTROL_CLASS = "[CLASS:Chrome_RenderWidgetHostHWND]"
 
 ; Config constants
-Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
-Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
-Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
-     $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
-     $CFG_MOUSE_CAPTURE_METHOD_MAX
-Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
-     $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
-     $CFG_AUTOFOCUS_AFTERWARDS_MAX
+Global Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
+Global Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
+Global Enum $CFG_MOUSE_CAPTURE_METHOD_HOOK, _
+            $CFG_MOUSE_CAPTURE_METHOD_RAWINPUT, _
+            $CFG_MOUSE_CAPTURE_METHOD_MAX
+Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
+            $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
+            $CFG_AUTOFOCUS_AFTERWARDS_MAX
 
 ; Config state
-$cfgReverse = Null
-$cfgAutofocus = Null
-$cfgAutofocusAfterwards = Null
-$cfgMouseCaptureMethod = Null
+Global $cfgReverse = Null
+Global $cfgAutofocus = Null
+Global $cfgAutofocusAfterwards = Null
+Global $cfgMouseCaptureMethod = Null
 
 ; Other application state
-$pointStruct = DllStructCreate($tagPOINT)
-Dim $HOOKS[2][2] = [ _
-                      [$MOUSE_WHEELSCROLLUP_EVENT, "onMouseWheel"], _
-                      [$MOUSE_WHEELSCROLLDOWN_EVENT, "onMouseWheel"] _
-                   ]
-$registeredMouseCaptureMethod = Null
-$aboutDialogExists = False
-$disabled = False
+Global $HOOKS[2][2] =   [ _
+                            [$MOUSE_WHEELSCROLLUP_EVENT, "onMouseWheel"], _
+                            [$MOUSE_WHEELSCROLLDOWN_EVENT, "onMouseWheel"] _
+                        ]
+Global $registeredMouseCaptureMethod = Null
+Global $disabled = False
 
 Opt("WinWaitDelay", 1)
 Opt("SendKeyDelay", 0)
@@ -91,19 +91,19 @@ If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
 EndIf
 
 Opt("TrayMenuMode", 1+4)
-$trayReverse = TrayCreateItem("Reverse the scroll direction")
-$trayAutofocus = TrayCreateItem("Autofocus Chrome")
-$trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
-$trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
-$trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
-$trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
-$trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
-$trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
-$trayDisable = TrayCreateItem("Disable (Gaming Mode)")
+Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
+Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
+Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
+Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+Global $trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+Global $trayMouseCaptureMethod = TrayCreateMenu("Mouse capture method")
+Global $trayMouseCaptureMethodHook = TrayCreateItem("Hook", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
+Global $trayMouseCaptureMethodRawInput = TrayCreateItem("Raw input", $trayMouseCaptureMethod, -1, $TRAY_ITEM_RADIO)
+Global $trayDisable = TrayCreateItem("Disable (Gaming Mode)")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
-$trayAbout = TrayCreateItem("About")
+Global $trayAbout = TrayCreateItem("About")
 TrayCreateItem("")
-$trayExit = TrayCreateItem("Exit")
+Global $trayExit = TrayCreateItem("Exit")
 TraySetClick($TRAY_CLICK_SECONDARYUP)
 TraySetState()
 TraySetToolTip(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME))
@@ -175,6 +175,7 @@ Func processTrayEvents()
             $trayAboutState = BitXOR($trayAboutState, $TRAY_CHECKED)
             $trayAboutState = BitOR($trayAboutState, $TRAY_UNCHECKED)
             TrayItemSetState($trayAbout, $trayAboutState)
+            Local Static $aboutDialogExists = False
             If Not $aboutDialogExists Then
                 $aboutDialogExists = True
                 aboutDialog()
@@ -215,6 +216,7 @@ Func unregisterHooks()
 EndFunc
 
 Func chromeWindowHandleWhenMouseInChromeTabsArea()
+    Local Static $pointStruct = DllStructCreate($tagPOINT)
     Local $mousePos = MouseGetPos()
     DllStructSetData($pointStruct, "x", $mousePos[0])
     DllStructSetData($pointStruct, "y", $mousePos[1])
@@ -256,9 +258,9 @@ Func onMouseWheel($event)
         Return
     EndIf
     ; we assume that all queued events operate on the same Chrome window $windowHandle as in level 1 recursion, so we don't enqueue the $windowHandle along with the event
-    Static $processing = False
-    Static $eventList[128] ; from some testing, i find it hard to exceed 128, although not impossible, so that's a good starting capacity
-    Static $eventListSize = 0
+    Local Static $processing = False
+    Local Static $eventList[128] ; from some testing, i find it hard to exceed 128, although not impossible, so that's a good starting capacity
+    Local Static $eventListSize = 0
     ; enqueue the event
     ; make sure the queue is big enough
     If $eventListSize == UBound($eventList) Then
@@ -287,7 +289,7 @@ Func onMouseWheel($event)
                 Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
                     Local $initiallyActive = WinGetHandle("[ACTIVE]")
                     Local $initialWinList = WinList()
-                    Dim $topmostWinList[$initialWinList[0][0]+1]
+                    Local $topmostWinList[$initialWinList[0][0]+1]
                     Local $foundIndex = -1
                     Local $setWindowPosCount = 0
                     ; figure out which windows we want to make temporarily topmost and which are already topmost
@@ -367,7 +369,7 @@ EndFunc
 Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
     While $eventListSize > 0
         $eventListSize -= 1
-        $event = $eventList[$eventListSize]
+        Local $event = $eventList[$eventListSize]
         Switch $event
             Case $MOUSE_WHEELSCROLLUP_EVENT
                 ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
@@ -426,7 +428,7 @@ Func processConfig()
 EndFunc
 
 Func aboutDialog()
-    $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST,$WS_EX_WINDOWEDGE))
+    Local $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST,$WS_EX_WINDOWEDGE))
     ; Disable the maximize button (no layouting breaks the form when maximized)
     _WinAPI_SetWindowLong(-1, $GWL_STYLE, BitXOr(_WinAPI_GetWindowLong(-1, $GWL_STYLE), $WS_MAXIMIZEBOX))
     GUISetBkColor(0xFFFFFF)
@@ -439,11 +441,11 @@ Func aboutDialog()
     GUICtrlSetFont(-1, 10)
     GUICtrlCreateLabel("Version " & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION), 152, 112, 385, 20)
     GUICtrlSetFont(-1, 10)
-    $labelHomepage = GUICtrlCreateLabel("Homepage", 544, 112, 66, 20)
+    Local $labelHomepage = GUICtrlCreateLabel("Homepage", 544, 112, 66, 20)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
     GUICtrlSetCursor (-1, $MCID_HAND)
-    $labelDonate = GUICtrlCreateLabel("Donate", 624, 112, 45, 20)
+    Local $labelDonate = GUICtrlCreateLabel("Donate", 624, 112, 45, 20)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
     GUICtrlSetCursor (-1, $MCID_HAND)
