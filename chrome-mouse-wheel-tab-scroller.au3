@@ -53,7 +53,7 @@ Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 46
 Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
 Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
 Global Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
-Global Const $CHROME_CONTROL_CLASS = "[CLASS:Chrome_RenderWidgetHostHWND]"
+Global Const $CHROME_CONTROL_CLASS_NAME = "Chrome_RenderWidgetHostHWND"
 
 ; Config constants
 Global Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
@@ -381,14 +381,23 @@ Func onMouseWheel($event)
 EndFunc
 
 Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
+    ; send input to the last matching window to prevent the tab preview pop-up from eating the hotkey combination we send
+    Local $controls = _WinAPI_EnumChildWindows($windowHandle, False)
+    Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
+    For $i = $controls[0][0] To 1 Step -1
+        If $controls[$i][1] == $CHROME_CONTROL_CLASS_NAME Then
+            $controlHandle = $controls[$i][0]
+            ExitLoop
+        EndIf
+    Next
     While $eventListSize > 0
         $eventListSize -= 1
         Local $event = $eventList[$eventListSize]
         Switch $event
             Case $MOUSE_WHEEL_SCROLL_UP_EVENT
-                ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
+                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
             Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
-                ControlSend($windowHandle, "", $CHROME_CONTROL_CLASS, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
+                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
         EndSwitch
     WEnd
 EndFunc
