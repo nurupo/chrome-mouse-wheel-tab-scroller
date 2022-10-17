@@ -391,6 +391,9 @@ Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSi
         EndIf
     Next
     While $eventListSize > 0
+        ; move the mouse in place to give focus to the tabs area to prevent pages in the document area from occasionally scrolling up/down
+        Local $mousePos = MouseGetPos()
+        MouseMove($mousePos[0], $mousePos[1], 10)
         $eventListSize -= 1
         Local $event = $eventList[$eventListSize]
         Switch $event
