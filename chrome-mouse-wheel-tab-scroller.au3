@@ -45,7 +45,12 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 #include <WinAPISysWin.au3>
 #include <WindowsConstants.au3>
 
+#include "third_party/UI Automation UDF/UIA_Constants.au3"
+
 Opt("MustDeclareVars", 1)
+Opt("SendKeyDelay", 0)
+Opt("SendKeyDownDelay", 0)
+Opt("WinWaitDelay", 1)
 
 ; Chrome offsets and class name
 Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
@@ -64,21 +69,33 @@ Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
 
 ; Config state
 Global $cfgReverse = Null
+Global $cfgWrapAround = Null
 Global $cfgAutofocus = Null
 Global $cfgAutofocusAfterwards = Null
 
 ; Other application state
 Global Enum $MOUSE_WHEEL_SCROLL_UP_EVENT, _
             $MOUSE_WHEEL_SCROLL_DOWN_EVENT
+Global Enum $TAB_SCROLL_LEFT, _
+            $TAB_SCROLL_RIGHT
 Global $disabled = False
-
-Opt("WinWaitDelay", 1)
-Opt("SendKeyDelay", 0)
-Opt("SendKeyDownDelay", 0)
 
 If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
     MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
     Exit
+EndIf
+
+Global Enum $TAB_FIRST, _
+            $TAB_LAST
+Global $UIACacheMap[]
+Global $oUIAutomation = ObjCreateInterface($sCLSID_CUIAutomation, $sIID_IUIAutomation, $dtag_IUIAutomation)
+Global $pTreeWalker, $oTreeWalker
+If Not IsObj($oUIAutomation) Then
+    ConsoleWrite("Error: Failed to create $oUIAutomation." & @CRLF)
+Else
+    $oUIAutomation.RawViewWalker($pTreeWalker)
+    $oTreeWalker = ObjCreateInterface($pTreeWalker, $sIID_IUIAutomationTreeWalker, $dtag_IUIAutomationTreeWalker)
+    If Not IsObj($oTreeWalker) Then ConsoleWrite("Error: Failed to create $oTreeWalker." & @CRLF)
 EndIf
 
 Global Const $inputHandlerForm = GUICreate(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " Raw Input Handler Window")
@@ -86,6 +103,7 @@ setupRawInputHandler()
 
 Opt("TrayMenuMode", 1+4)
 Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
+Global $trayWrapAround = TrayCreateItem("Wrap around")
 Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
 Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
 Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
@@ -103,13 +121,21 @@ readConfig()
 processConfig()
 
 While 1
-    processTrayEvents()
+    mainEventLoop()
 WEnd
+
+Func mainEventLoop()
+    processTrayEvents()
+    cleanupUIACacheMap()
+EndFunc
 
 Func processTrayEvents()
     Switch TrayGetMsg()
         Case $trayReverse
             $cfgReverse = Not $cfgReverse
+            writeConfig()
+        Case $trayWrapAround
+            $cfgWrapAround = Not $cfgWrapAround
             writeConfig()
         Case $trayAutofocus
             Local $trayAutofocusState = TrayItemGetState($trayAutofocus)
@@ -164,6 +190,19 @@ Func processTrayEvents()
     EndSwitch
 EndFunc
 
+Func cleanupUIACacheMap()
+    Local Static $UIACacheMapLastChecked = TimerInit()
+    If UBound($UIACacheMap) > 1024 And TimerDiff($UIACacheMapLastChecked) > (60 * 1000) Then
+        Local $mapKeys = MapKeys($UIACacheMap)
+        For $key In $mapKeys
+            If Not WinExists($UIACacheMap[$key]) Then
+                MapRemove($UIACacheMap, $key)
+            EndIf
+        Next
+        $UIACacheMapLastChecked = TimerInit()
+    EndIf
+EndFunc
+
 Func setupRawInputHandler()
     Local $tRID = DllStructCreate($tagRAWINPUTDEVICE)
     DllStructSetData($tRID, "UsagePage", 0x01) ; Generic Desktop Controls
@@ -190,6 +229,79 @@ Func WM_INPUT($hWnd, $iMsg, $wParam, $lParam)
     If BitAND($iFlags, $RI_MOUSE_WHEEL) Then
         onMouseWheel(_WinAPI_WordToShort(DllStructGetData($tRIM, 'ButtonData')) > 0 ? $MOUSE_WHEEL_SCROLL_UP_EVENT : $MOUSE_WHEEL_SCROLL_DOWN_EVENT)
     EndIf
+EndFunc
+
+Func tabsPane($windowHandle)
+    If Not IsObj($oUIAutomation) Or Not IsObj($oTreeWalker) Then
+        Return 0
+    EndIf
+
+    Local $pElement, $oChrome
+    $oUIAutomation.ElementFromHandle($windowHandle, $pElement)
+    If Not $pElement Then Return ConsoleWrite("Error: Failed to set $pElement." & @CRLF)
+    $oChrome = ObjCreateInterface($pElement, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oChrome) Then Return ConsoleWrite("Error: Failed to set $oChrome." & @CRLF)
+
+    Local $pCondition1
+    $oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $UIA_PaneControlTypeId, $pCondition1)
+    If Not $pCondition1 Then Return ConsoleWrite("Error: Failed to set $pCondition1." & @CRLF)
+
+    Local $pPanes, $oPanes, $iPanesLength
+    $oChrome.FindAll($TreeScope_Children, $pCondition1, $pPanes)
+    If Not $pPanes Then Return ConsoleWrite("Error: Failed to set $pPanes." & @CRLF)
+    $oPanes = ObjCreateInterFace($pPanes, $sIID_IUIAutomationElementArray, $dtag_IUIAutomationElementArray)
+    If Not IsObj($oPanes) Then Return ConsoleWrite("Error: Failed to set $oPanes." & @CRLF)
+    $oPanes.Length($iPanesLength)
+    If Not $iPanesLength Then Return ConsoleWrite("Error: Failed to set $iPanesLength." & @CRLF)
+
+    Local $pCondition2
+    $oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $UIA_TabItemControlTypeId, $pCondition2)
+    If Not $pCondition2 Then Return ConsoleWrite("Error: Failed to set $pCondition2." & @CRLF)
+
+    Local $pTabItem, $oTabItem
+    For $i = 0 To $iPanesLength - 1
+        Local $pPane, $oPane
+        $oPanes.GetElement($i, $pPane)
+        $oPane = ObjCreateInterface($pPane, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+        $oPane.FindFirst($TreeScope_Descendants, $pCondition2, $pTabItem)
+        $oTabItem = ObjCreateInterface($pTabItem, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+        If IsObj($oTabItem) Then
+            ExitLoop
+        EndIf
+    Next
+
+    If Not IsObj($oTabItem) Then Return ConsoleWrite("Error: Couldn't find $oTabItem." & @CRLF)
+
+    Local $pTabsPane, $oTabsPane
+    $oTreeWalker.GetParentElement($oTabItem, $pTabsPane)
+    If Not $pTabsPane Then Return ConsoleWrite("Error: Failed to set $pTabsPane." & @CRLF)
+    $oTabsPane = ObjCreateInterface($pTabsPane, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTabsPane) Then Return ConsoleWrite("Error: Failed to set $oTabsPane" & @CRLF)
+
+    Return $oTabsPane
+EndFunc
+
+Func isTabSelected(ByRef $oTabsPane, $tabSelection)
+    If Not IsObj($oTabsPane) Then
+        Return False
+    EndIf
+
+    Local $pTab, $oTab
+    Switch $tabSelection
+        Case $TAB_FIRST
+            $oTreeWalker.GetFirstChildElement($oTabsPane, $pTab)
+        Case $TAB_LAST
+            $oTreeWalker.GetLastChildElement($oTabsPane, $pTab)
+    EndSwitch
+    If Not $pTab Then Return ConsoleWrite("Error: Failed to set $pTab." & @CRLF)
+    $oTab = ObjCreateInterface($pTab, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTab) Then Return ConsoleWrite("Error: Failed to set $oTab." & @CRLF)
+
+    Local $isTabSelected = False
+    If $oTab.GetCurrentPropertyValue($UIA_SelectionItemIsSelectedPropertyId, $isTabSelected) <> 0 Then
+        ConsoleWrite("Error: Failed to get SelectionItemIsSelectedPropertyId." & @CRLF)
+    EndIf
+    Return $isTabSelected
 EndFunc
 
 Func chromeWindowHandleWhenMouseInChromeTabsArea()
@@ -258,24 +370,37 @@ Func onMouseWheel($event)
     If $eventListSize == UBound($eventList) Then
         ReDim $eventList[Int(($eventListSize * 1.5) + 1)] ; we don't size down the array, but that should be fine (tm)
     EndIf
-    $eventList[$eventListSize] = $event
+    If Not $cfgReverse Then
+        $eventList[$eventListSize] = $event == $MOUSE_WHEEL_SCROLL_UP_EVENT ? $TAB_SCROLL_LEFT : $TAB_SCROLL_RIGHT
+    Else
+        $eventList[$eventListSize] = $event == $MOUSE_WHEEL_SCROLL_UP_EVENT ? $TAB_SCROLL_RIGHT : $TAB_SCROLL_LEFT
+    EndIf
     $eventListSize += 1
     ; return if we are not the first recusion level, let the first recursion level process all the events
     If $processing Then
         Return
     EndIf
     $processing = True
+    If Not MapExists($UIACacheMap, $windowHandle) Then
+        $UIACacheMap[$windowHandle] = tabsPane($windowHandle)
+    EndIf
     While $eventListSize > 0
         Local $processed = False
+        If Not $cfgWrapAround And _
+            (($eventList[$eventListSize-1] == $TAB_SCROLL_LEFT  And isTabSelected($UIACacheMap[$windowHandle], $TAB_FIRST)) Or _
+             ($eventList[$eventListSize-1] == $TAB_SCROLL_RIGHT And isTabSelected($UIACacheMap[$windowHandle], $TAB_LAST))) Then
+            $eventListSize = 0
+            ExitLoop
+        EndIf
         Local $windowStateBitmask = WinGetState($windowHandle)
         If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
-            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
             $processed = True
         ElseIf $cfgAutofocus Then
             Switch $cfgAutofocusAfterwards
                 Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
                     If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                        dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+                        dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
                         $processed = True
                     EndIf
                 Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
@@ -341,7 +466,7 @@ Func onMouseWheel($event)
                             EndIf
                         Until $windowPosSuccess Or $count == 0
                         If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+                            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
                             $processed = True
                         EndIf
                         ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
@@ -380,7 +505,7 @@ Func onMouseWheel($event)
     $processing = False
 EndFunc
 
-Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
+Func dequeueAndProcessEvents($windowHandle, ByRef $tabsPane, ByRef $eventList, ByRef $eventListSize)
     ; send input to the last matching window to prevent the tab preview pop-up from eating the hotkey combination we send
     Local $controls = _WinAPI_EnumChildWindows($windowHandle, False)
     Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
@@ -397,16 +522,23 @@ Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSi
         $eventListSize -= 1
         Local $event = $eventList[$eventListSize]
         Switch $event
-            Case $MOUSE_WHEEL_SCROLL_UP_EVENT
-                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
-            Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
-                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
+            Case $TAB_SCROLL_LEFT
+                ControlSend($windowHandle, "", $controlHandle, "^{PGUP}")
+            Case $TAB_SCROLL_RIGHT
+                ControlSend($windowHandle, "", $controlHandle, "^{PGDN}")
         EndSwitch
+        If Not $cfgWrapAround And _
+            (($event == $TAB_SCROLL_LEFT  And isTabSelected($tabsPane, $TAB_FIRST)) Or _
+             ($event == $TAB_SCROLL_RIGHT And isTabSelected($tabsPane, $TAB_LAST))) Then
+            $eventListSize = 0
+            ExitLoop
+        EndIf
     WEnd
 EndFunc
 
 Func readConfig()
     $cfgReverse = Int(IniRead($CFG_FILE_PATH, "options", "reverse", 0)) == 1
+    $cfgWrapAround = Int(IniRead($CFG_FILE_PATH, "options", "wrapAround", 0)) == 1
     $cfgAutofocus = Int(IniRead($CFG_FILE_PATH, "options", "autofocus", 1)) == 1
     $cfgAutofocusAfterwards = Int(IniRead($CFG_FILE_PATH, "options", "autofocusAfterwards", $CFG_AUTOFOCUS_AFTERWARDS_KEEP))
     If $cfgAutofocusAfterwards < 0 Or $cfgAutofocusAfterwards >= $CFG_AUTOFOCUS_AFTERWARDS_MAX Then
@@ -419,6 +551,7 @@ Func writeConfig()
     DirCreate($CFG_DIR_PATH)
 
     IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
+    IniWrite($CFG_FILE_PATH, "options", "wrapAround", Int($cfgWrapAround))
     IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
     IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", $cfgAutofocusAfterwards)
 EndFunc
@@ -426,6 +559,10 @@ EndFunc
 Func processConfig()
     If $cfgReverse Then
         TrayItemSetState($trayReverse, $TRAY_CHECKED)
+    EndIf
+
+    If $cfgWrapAround Then
+        TrayItemSetState($trayWrapAround, $TRAY_CHECKED)
     EndIf
 
     If $cfgAutofocus Then
@@ -470,6 +607,9 @@ Func aboutDialog()
         "Donate: " & $PROJECT_DONATE_URL & @CRLF & _
         "" & @CRLF & _
         "Credits:" & @CRLF & _
+        "UI Automation UDF" & @CRLF & _
+        "Author: LarsJ and others" & @CRLF & _
+        "Homepage: https://www.autoitscript.com/forum/topic/201683-ui-automation-udfs/" & @CRLF & _
         "" & @CRLF & _
         "Google Chrome icon" & @CRLF & _
         "Author: Just UI (https://www.iconfinder.com/justui)" & @CRLF & _
@@ -496,7 +636,7 @@ Func aboutDialog()
             Case $labelDonate
                 ShellExecute($PROJECT_DONATE_URL)
         EndSwitch
-        processTrayEvents()
+        mainEventLoop()
     WEnd
 
     GUIDelete($formAbout)

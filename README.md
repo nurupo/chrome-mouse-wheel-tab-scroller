@@ -56,6 +56,8 @@ As long as you trust the source code, you can [install AutoIt](https://www.autoi
 
 ## Attribution
 
+This script uses parts of [UI Automation UDF](https://www.autoitscript.com/forum/topic/201683-ui-automation-udfs/), which are included in the repository for the convenience.
+
 The application icon is a combination of:
 
 - [Google Chrome icon](https://www.iconfinder.com/icons/1298719/chrome_google_icon) by [Just UI](https://www.iconfinder.com/justui)
