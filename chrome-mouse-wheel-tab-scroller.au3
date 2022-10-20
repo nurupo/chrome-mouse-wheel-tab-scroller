@@ -56,7 +56,7 @@ Opt("WinWaitDelay", 1)
 Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
 Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 46
 Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
-Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 150
+Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 192
 Global Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
 Global Const $CHROME_CONTROL_CLASS_NAME = "Chrome_RenderWidgetHostHWND"
 
@@ -304,6 +304,45 @@ Func isTabSelected(ByRef $oTabsPane, $tabSelection)
     Return $isTabSelected
 EndFunc
 
+Func tabsArea(ByRef $oTabsPane)
+    If Not IsObj($oTabsPane) Or Not IsObj($oTreeWalker) Then
+        Return 0
+    EndIf
+
+    Local $pParent1, $oParent1
+    $oTreeWalker.GetParentElement($oTabsPane, $pParent1)
+    If Not $pParent1 Then Return ConsoleWrite("Error: Failed to set $pParent1." & @CRLF)
+    $oParent1 = ObjCreateInterface($pParent1, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oParent1) Then Return ConsoleWrite("Error: Failed to set $oParent1." & @CRLF)
+
+    Local $pParent2, $oParent2
+    $oTreeWalker.GetParentElement($oParent1, $pParent2)
+    If Not $pParent2 Then Return ConsoleWrite("Error: Failed to set $pParent2." & @CRLF)
+    $oParent2 = ObjCreateInterface($pParent2, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oParent2) Then Return ConsoleWrite("Error: Failed to set $oParent2." & @CRLF)
+
+    Return $oParent2
+EndFunc
+
+Func boundingBox(ByRef $oElement)
+    If Not IsObj($oElement) Then
+        Return 0
+    EndIf
+
+    Local $aRect
+    $oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $aRect)
+    Return $aRect
+EndFunc
+
+Func positionToCoordinates(ByRef $pos)
+    ; For some reason Chrome's X and Y positions are -8 when the window is maximized, so if it's negative we assume it's 0
+    If $pos[0] < 0 Then $pos[0] = 0
+    If $pos[1] < 0 Then $pos[1] = 0
+    ; change [x, y, w, h] to [x1, y1, x2, y2]
+    $pos[2] += $pos[0]
+    $pos[3] += $pos[1]
+EndFunc
+
 Func chromeWindowHandleWhenMouseInChromeTabsArea()
     Local Static $pointStruct = DllStructCreate($tagPOINT)
     Local $mousePos = MouseGetPos()
@@ -319,20 +358,35 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
         ; it's a tab preview window handle, let us get a handle to the actual Chrome window
         $windowHandle = _WinAPI_GetAncestor($windowHandle, $GA_ROOTOWNER)
     EndIf
-    Local $windowPos = WinGetPos($windowHandle)
-    Local $windowStateBitmask = WinGetState($windowHandle)
-    If BitAND($windowStateBitmask, $WIN_STATE_MAXIMIZED) Then
-        ; For some reason Chrome's X and Y positions are -8 when the window is maximized, so if it's negative we assume it's 0
-        If $windowPos[1] < 0 Then $windowPos[1] = 0
-        If $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_MAXIMIZED And _ ; bottom bound
-            $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED _ ; right bound
-            Then Return $windowHandle
+    Local $bottomBound = -1
+    Local $rightBound = -1
+    If Not MapExists($UIACacheMap, $windowHandle) Then
+        Local $map[]
+        $map["tabsPane"] = tabsPane($windowHandle) ; the direct parent of tab items
+        $map["tabsArea"] = tabsArea($map["tabsPane"]) ; a parent of tabsPane that has the bounding box extening all the way to the system buttons
+        $UIACacheMap[$windowHandle] = $map
+    EndIf
+    ; TODO(nurupo): change to the dot notation once https://www.autoitscript.com/trac/autoit/ticket/3924 is fixed
+    Local $tabsAreaBoundingBox = boundingBox($UIACacheMap[$windowHandle]["tabsArea"])
+    If IsArray($tabsAreaBoundingBox) Then
+        positionToCoordinates($tabsAreaBoundingBox)
+        $bottomBound = $tabsAreaBoundingBox[3]
+        $rightBound = $tabsAreaBoundingBox[2]
     Else
-        If $mousePos[1] - $windowPos[1] <= $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED And _ ; bottom bound
-            $windowPos[0] +  $windowPos[2] - $mousePos[0] >= $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED And _ ; right bound
-            $mousePos[1] >= $windowPos[1] And _ ; top bound
-            $mousePos[0] >= $windowPos[0] _ ; left bound
-            Then Return $windowHandle
+        ; fallback to the hardcoded bounding box
+        Local $windowPos = WinGetPos($windowHandle)
+        positionToCoordinates($windowPos)
+        Local $windowStateBitmask = WinGetState($windowHandle)
+        If BitAND($windowStateBitmask, $WIN_STATE_MAXIMIZED) Then
+            $bottomBound = $windowPos[1] + $CHROME_TABS_AREA_HEIGHT_MAXIMIZED + 20
+            $rightBound = $windowPos[2] - $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED - 20
+        Else
+            $bottomBound = $windowPos[1] + $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED + 20
+            $rightBound = $windowPos[2] - $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED - 20
+        EndIf
+    EndIf
+    If $mousePos[1] <= $bottomBound And $mousePos[0] <= $rightBound Then
+        Return $windowHandle
     EndIf
     Return 0
 EndFunc
@@ -381,26 +435,23 @@ Func onMouseWheel($event)
         Return
     EndIf
     $processing = True
-    If Not MapExists($UIACacheMap, $windowHandle) Then
-        $UIACacheMap[$windowHandle] = tabsPane($windowHandle)
-    EndIf
     While $eventListSize > 0
         Local $processed = False
         If Not $cfgWrapAround And _
-            (($eventList[$eventListSize-1] == $TAB_SCROLL_LEFT  And isTabSelected($UIACacheMap[$windowHandle], $TAB_FIRST)) Or _
-             ($eventList[$eventListSize-1] == $TAB_SCROLL_RIGHT And isTabSelected($UIACacheMap[$windowHandle], $TAB_LAST))) Then
+            (($eventList[$eventListSize-1] == $TAB_SCROLL_LEFT  And isTabSelected($UIACacheMap[$windowHandle]["tabsPane"], $TAB_FIRST)) Or _
+             ($eventList[$eventListSize-1] == $TAB_SCROLL_RIGHT And isTabSelected($UIACacheMap[$windowHandle]["tabsPane"], $TAB_LAST))) Then
             $eventListSize = 0
             ExitLoop
         EndIf
         Local $windowStateBitmask = WinGetState($windowHandle)
         If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
-            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
+            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
             $processed = True
         ElseIf $cfgAutofocus Then
             Switch $cfgAutofocusAfterwards
                 Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
                     If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                        dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
+                        dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
                         $processed = True
                     EndIf
                 Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
@@ -466,7 +517,7 @@ Func onMouseWheel($event)
                             EndIf
                         Until $windowPosSuccess Or $count == 0
                         If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle], $eventList, $eventListSize)
+                            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
                             $processed = True
                         EndIf
                         ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
