@@ -46,6 +46,7 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 #include <WindowsConstants.au3>
 
 #include "third_party/UI Automation UDF/UIA_Constants.au3"
+#include "third_party/UI Automation UDF/UIAEH_AutomationEventHandler.au3"
 
 Opt("MustDeclareVars", 1)
 Opt("SendKeyDelay", 0)
@@ -81,21 +82,23 @@ Global Enum $TAB_SCROLL_LEFT, _
 Global $disabled = False
 
 If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
-    MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
-    Exit
+    fatalError("Another instance of this application is already running")
 EndIf
 
 Global Enum $TAB_FIRST, _
             $TAB_LAST
 Global $UIACacheMap[]
+Global $pTabsPaneToWindowHandleMap[]
 Global $oUIAutomation = ObjCreateInterface($sCLSID_CUIAutomation, $sIID_IUIAutomation, $dtag_IUIAutomation)
 Global $pTreeWalker, $oTreeWalker
 If Not IsObj($oUIAutomation) Then
-    ConsoleWrite("Error: Failed to create $oUIAutomation." & @CRLF)
+    fatalError("Failed to create $oUIAutomation")
 Else
     $oUIAutomation.RawViewWalker($pTreeWalker)
     $oTreeWalker = ObjCreateInterface($pTreeWalker, $sIID_IUIAutomationTreeWalker, $dtag_IUIAutomationTreeWalker)
-    If Not IsObj($oTreeWalker) Then ConsoleWrite("Error: Failed to create $oTreeWalker." & @CRLF)
+    If Not IsObj($oTreeWalker) Then fatalError("Failed to create $oTreeWalker")
+    UIAEH_AutomationEventHandlerCreate()
+    If Not IsObj($oUIAEH_AutomationEventHandler) Then fatalError("Failed to create $oUIAEH_AutomationEventHandler")
 EndIf
 
 Global Const $inputHandlerForm = GUICreate(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " Raw Input Handler Window")
@@ -124,9 +127,15 @@ While 1
     mainEventLoop()
 WEnd
 
+Func fatalError($msg)
+    MsgBox($MB_ICONERROR, FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " - Fatal Error", _
+           $msg & "." & @CRLF & @CRLF & "The application will terminate due to the error.")
+    Exit
+EndFunc
+
 Func mainEventLoop()
     processTrayEvents()
-    cleanupUIACacheMap()
+    cleanupCache()
 EndFunc
 
 Func processTrayEvents()
@@ -190,14 +199,26 @@ Func processTrayEvents()
     EndSwitch
 EndFunc
 
-Func cleanupUIACacheMap()
+Func cleanupCache()
     Local Static $UIACacheMapLastChecked = TimerInit()
     If UBound($UIACacheMap) > 1024 And TimerDiff($UIACacheMapLastChecked) > (60 * 1000) Then
-        Local $mapKeys = MapKeys($UIACacheMap)
-        For $key In $mapKeys
-            If Not WinExists($UIACacheMap[$key]) Then
-                MapRemove($UIACacheMap, $key)
+        Local $windowHandles = MapKeys($UIACacheMap)
+        For $w In $windowHandles
+            If WinExists(Ptr($w)) Then
+                ContinueLoop
             EndIf
+            Local $tabsPaneRuntimeIdPropertyId4
+            Local $oTabsPane = $UIACacheMap[$w]["oTabsPane"]
+            $oTabsPane.GetCurrentPropertyValue($UIA_RuntimeIdPropertyId, $tabsPaneRuntimeIdPropertyId4)
+            Local $tabsPaneRuntimeIdPropertyIdStr
+            arrayToString($tabsPaneRuntimeIdPropertyId4, $tabsPaneRuntimeIdPropertyIdStr)
+            MapRemove($pTabsPaneToWindowHandleMap, $tabsPaneRuntimeIdPropertyIdStr)
+            $oTabsPane.Release()
+            If MapExists($UIACacheMap[$w], "oEventSelectedTab") Then
+                Local $oOldTab = $UIACacheMap[$w]["oEventSelectedTab"]
+                $oOldTab.Release()
+            EndIf
+            MapRemove($UIACacheMap, $w)
         Next
         $UIACacheMapLastChecked = TimerInit()
     EndIf
@@ -232,31 +253,27 @@ Func WM_INPUT($hWnd, $iMsg, $wParam, $lParam)
 EndFunc
 
 Func tabsPane($windowHandle)
-    If Not IsObj($oUIAutomation) Or Not IsObj($oTreeWalker) Then
-        Return 0
-    EndIf
-
-    Local $pElement, $oChrome
-    $oUIAutomation.ElementFromHandle($windowHandle, $pElement)
-    If Not $pElement Then Return ConsoleWrite("Error: Failed to set $pElement." & @CRLF)
-    $oChrome = ObjCreateInterface($pElement, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
-    If Not IsObj($oChrome) Then Return ConsoleWrite("Error: Failed to set $oChrome." & @CRLF)
+    Local $pChrome, $oChrome
+    $oUIAutomation.ElementFromHandle($windowHandle, $pChrome)
+    If Not $pChrome Then fatalError("Failed to set $pChrome")
+    $oChrome = ObjCreateInterface($pChrome, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oChrome) Then fatalError("Failed to set $oChrome")
 
     Local $pCondition1
     $oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $UIA_PaneControlTypeId, $pCondition1)
-    If Not $pCondition1 Then Return ConsoleWrite("Error: Failed to set $pCondition1." & @CRLF)
+    If Not $pCondition1 Then fatalError("Failed to set $pCondition1")
 
     Local $pPanes, $oPanes, $iPanesLength
     $oChrome.FindAll($TreeScope_Children, $pCondition1, $pPanes)
-    If Not $pPanes Then Return ConsoleWrite("Error: Failed to set $pPanes." & @CRLF)
+    If Not $pPanes Then fatalError("Failed to set $pPanes")
     $oPanes = ObjCreateInterFace($pPanes, $sIID_IUIAutomationElementArray, $dtag_IUIAutomationElementArray)
-    If Not IsObj($oPanes) Then Return ConsoleWrite("Error: Failed to set $oPanes." & @CRLF)
+    If Not IsObj($oPanes) Then fatalError("Failed to set $oPanes")
     $oPanes.Length($iPanesLength)
-    If Not $iPanesLength Then Return ConsoleWrite("Error: Failed to set $iPanesLength." & @CRLF)
+    If Not $iPanesLength Then fatalError("Failed to set $iPanesLength")
 
     Local $pCondition2
     $oUIAutomation.CreatePropertyCondition($UIA_ControlTypePropertyId, $UIA_TabItemControlTypeId, $pCondition2)
-    If Not $pCondition2 Then Return ConsoleWrite("Error: Failed to set $pCondition2." & @CRLF)
+    If Not $pCondition2 Then fatalError("Failed to set $pCondition2")
 
     Local $pTabItem, $oTabItem
     For $i = 0 To $iPanesLength - 1
@@ -270,22 +287,16 @@ Func tabsPane($windowHandle)
         EndIf
     Next
 
-    If Not IsObj($oTabItem) Then Return ConsoleWrite("Error: Couldn't find $oTabItem." & @CRLF)
+    If Not IsObj($oTabItem) Then fatalError("Couldn't find $oTabItem")
 
-    Local $pTabsPane, $oTabsPane
+    Local $pTabsPane
     $oTreeWalker.GetParentElement($oTabItem, $pTabsPane)
-    If Not $pTabsPane Then Return ConsoleWrite("Error: Failed to set $pTabsPane." & @CRLF)
-    $oTabsPane = ObjCreateInterface($pTabsPane, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
-    If Not IsObj($oTabsPane) Then Return ConsoleWrite("Error: Failed to set $oTabsPane" & @CRLF)
+    If Not $pTabsPane Then fatalError("Failed to set $pTabsPane")
 
-    Return $oTabsPane
+    Return $pTabsPane
 EndFunc
 
-Func isTabSelected(ByRef $oTabsPane, $tabSelection)
-    If Not IsObj($oTabsPane) Then
-        Return False
-    EndIf
-
+Func isEdgeTabSelected($oTabsPane, $tabSelection)
     Local $pTab, $oTab
     Switch $tabSelection
         Case $TAB_FIRST
@@ -293,42 +304,108 @@ Func isTabSelected(ByRef $oTabsPane, $tabSelection)
         Case $TAB_LAST
             $oTreeWalker.GetLastChildElement($oTabsPane, $pTab)
     EndSwitch
-    If Not $pTab Then Return ConsoleWrite("Error: Failed to set $pTab." & @CRLF)
+    If Not $pTab Then fatalError("Failed to set $pTab")
     $oTab = ObjCreateInterface($pTab, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
-    If Not IsObj($oTab) Then Return ConsoleWrite("Error: Failed to set $oTab." & @CRLF)
+    If Not IsObj($oTab) Then fatalError("Failed to set $oTab")
+
+    Return isTabSelected($oTab)
+EndFunc
+
+Func isTabSelected($oTab)
+    If Not IsObj($oTab) Then
+        Return False
+    EndIf
 
     Local $isTabSelected = False
     If $oTab.GetCurrentPropertyValue($UIA_SelectionItemIsSelectedPropertyId, $isTabSelected) <> 0 Then
-        ConsoleWrite("Error: Failed to get SelectionItemIsSelectedPropertyId." & @CRLF)
+        fatalError("Failed to get SelectionItemIsSelectedPropertyId")
     EndIf
     Return $isTabSelected
 EndFunc
 
-Func tabsArea(ByRef $oTabsPane)
-    If Not IsObj($oTabsPane) Or Not IsObj($oTreeWalker) Then
-        Return 0
+Func selectedTab($oTabsPane)
+    Local $pLegacyIAccessiblePattern, $oLegacyIAccessiblePattern
+    $oTabsPane.GetCurrentPattern($UIA_LegacyIAccessiblePatternId, $pLegacyIAccessiblePattern)
+    If Not $pLegacyIAccessiblePattern Then fatalError("Failed to set $pLegacyIAccessiblePattern")
+    $oLegacyIAccessiblePattern = ObjCreateInterface($pLegacyIAccessiblePattern, $sIID_IUIAutomationLegacyIAccessiblePattern, $dtag_IUIAutomationLegacyIAccessiblePattern)
+    If Not IsObj($oLegacyIAccessiblePattern) Then fatalError("Failed to set $oLegacyIAccessiblePattern")
+
+    Local $pTabs, $oTabs, $iTabsLength
+    $oLegacyIAccessiblePattern.GetCurrentSelection($pTabs)
+    If Not $pTabs Then fatalError("Failed to set $pTabs")
+    $oTabs = ObjCreateInterFace($pTabs, $sIID_IUIAutomationElementArray, $dtag_IUIAutomationElementArray)
+    If Not IsObj($oTabs) Then fatalError("Failed to set $oTabs")
+    $oTabs.Length($iTabsLength)
+    If Not $iTabsLength Then fatalError("Failed to set $iTabsLength")
+
+    ; There should be just one tab selected
+    If $iTabsLength == 1 Then
+        Local $pTab, $oTab
+        $oTabs.GetElement(0, $pTab)
+        $oTab = ObjCreateInterface($pTab, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+        Return $oTab
     EndIf
 
+    fatalError($iTabsLength & " tabs are selected?!")
+EndFunc
+
+Func selectTab($windowHandle, $direction)
+    Local $oTabsPane = $UIACacheMap[$windowHandle]["oTabsPane"]
+    Local $oSelectedTab = Null
+
+    If isTabSelected($UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]) Then
+        $oSelectedTab = $UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]
+    ElseIf isTabSelected($UIACacheMap[$windowHandle]["oEventSelectedTab"]) Then
+        $oSelectedTab = $UIACacheMap[$windowHandle]["oEventSelectedTab"]
+    Else
+        $oSelectedTab = selectedTab($oTabsPane)
+    EndIf
+
+    Local $pTab, $oTab
+    Switch $direction
+        Case $TAB_SCROLL_RIGHT
+            $oTreeWalker.GetNextSiblingElement($oSelectedTab, $pTab)
+            If Not $pTab Then
+                $oTreeWalker.GetFirstChildElement($oTabsPane, $pTab)
+                If Not $pTab Then fatalError("Failed to set $pTab")
+            EndIf
+        Case $TAB_SCROLL_LEFT
+            $oTreeWalker.GetPreviousSiblingElement($oSelectedTab, $pTab)
+            If Not $pTab Then
+                $oTreeWalker.GetLastChildElement($oTabsPane, $pTab)
+                If Not $pTab Then fatalError("Failed to set $pTab")
+            EndIf
+    EndSwitch
+    $oTab = ObjCreateInterface($pTab, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTab) Then fatalError("Failed to set $oTab")
+
+    Local $pLegacyIAccessiblePattern, $oLegacyIAccessiblePattern
+    $oTab.GetCurrentPattern($UIA_LegacyIAccessiblePatternId, $pLegacyIAccessiblePattern)
+    If Not $pLegacyIAccessiblePattern Then fatalError("Failed to set $pLegacyIAccessiblePattern")
+    $oLegacyIAccessiblePattern = ObjCreateInterface($pLegacyIAccessiblePattern, $sIID_IUIAutomationLegacyIAccessiblePattern, $dtag_IUIAutomationLegacyIAccessiblePattern)
+    If Not IsObj($oLegacyIAccessiblePattern) Then fatalError("Failed to set $oLegacyIAccessiblePattern")
+
+    $oLegacyIAccessiblePattern.DoDefaultAction()
+    $UIACacheMap[$windowHandle]["oPreviouslySelectedTab"] = $oTab
+EndFunc
+
+Func tabsBoundingBoxElement($oTabsPane)
     Local $pParent1, $oParent1
     $oTreeWalker.GetParentElement($oTabsPane, $pParent1)
-    If Not $pParent1 Then Return ConsoleWrite("Error: Failed to set $pParent1." & @CRLF)
+    If Not $pParent1 Then fatalError("Failed to set $pParent1")
     $oParent1 = ObjCreateInterface($pParent1, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
-    If Not IsObj($oParent1) Then Return ConsoleWrite("Error: Failed to set $oParent1." & @CRLF)
+    If Not IsObj($oParent1) Then fatalError("Failed to set $oParent1")
 
     Local $pParent2, $oParent2
     $oTreeWalker.GetParentElement($oParent1, $pParent2)
-    If Not $pParent2 Then Return ConsoleWrite("Error: Failed to set $pParent2." & @CRLF)
+    If Not $pParent2 Then fatalError("Failed to set $pParent2")
     $oParent2 = ObjCreateInterface($pParent2, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
-    If Not IsObj($oParent2) Then Return ConsoleWrite("Error: Failed to set $oParent2." & @CRLF)
+    If Not IsObj($oParent2) Then fatalError("Failed to set $oParent2")
 
     Return $oParent2
 EndFunc
 
-Func boundingBox(ByRef $oElement)
-    If Not IsObj($oElement) Then
-        Return 0
-    EndIf
-
+Func boundingBox($oElement)
     Local $aRect
     $oElement.GetCurrentPropertyValue($UIA_BoundingRectanglePropertyId, $aRect)
     Return $aRect
@@ -341,6 +418,80 @@ Func positionToCoordinates(ByRef $pos)
     ; change [x, y, w, h] to [x1, y1, x2, y2]
     $pos[2] += $pos[0]
     $pos[3] += $pos[1]
+EndFunc
+
+Func arrayToString(ByRef $arr, ByRef $str)
+    For $i = 0 To UBound($arr)-1
+        $str &= $arr[$i] & ","
+    Next
+EndFunc
+
+Func cacheWindowInfo($windowHandle)
+    ; cache only on the first time
+    If MapExists($UIACacheMap, $windowHandle) Then
+        Return
+    EndIf
+    Local $pTabsPane, $oTabsPane, $oTabsBoundingBoxElement
+    $pTabsPane = tabsPane($windowHandle) ; the direct parent of tab items
+    $oTabsPane = ObjCreateInterface($pTabsPane, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTabsPane) Then fatalError("Failed to set $oTabsPane")
+    $oTabsPane.AddRef() ; has to outlive its window for up to cleanup cache
+    $oTabsBoundingBoxElement = tabsBoundingBoxElement($oTabsPane) ; a parent of tabsPane that has the bounding box extening all the way to the system buttons
+    Local $tabsPaneRuntimeIdPropertyId4
+    $oTabsPane.GetCurrentPropertyValue($UIA_RuntimeIdPropertyId, $tabsPaneRuntimeIdPropertyId4)
+    Local $tabsPaneRuntimeIdPropertyIdStr
+    arrayToString($tabsPaneRuntimeIdPropertyId4, $tabsPaneRuntimeIdPropertyIdStr)
+    Local $map[]
+    $map["oTabsPane"] = $oTabsPane
+    $map["oTabsBoundingBoxElement"] = $oTabsBoundingBoxElement
+    $UIACacheMap[$windowHandle] = $map
+    $pTabsPaneToWindowHandleMap[$tabsPaneRuntimeIdPropertyIdStr] = $windowHandle
+    Local $iError = $oUIAutomation.AddAutomationEventHandler($UIA_SelectionItem_ElementSelectedEventId, $pTabsPane, $TreeScope_Children, 0, $oUIAEH_AutomationEventHandler)
+    If $iError Then ConsoleWrite("Warning: AddAutomationEventHandler() call failed.")
+EndFunc
+
+Func UIAEH_AutomationEventHandler_HandleAutomationEvent($pSelf, $pSender, $iEventId)
+    If $iEventId <> $UIA_SelectionItem_ElementSelectedEventId Then
+        ConsoleWrite("Warning: got event: " & $iEventId & " but expected " & $UIA_SelectionItem_ElementSelectedEventId & @CRLF)
+        Return 0
+    EndIf
+    Local $oTab = ObjCreateInterface($pSender, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTab) Then
+        ConsoleWrite("Warning: Failed to set $oTab." & @CRLF)
+        Return 0
+    EndIf
+    Local $pTabsPane, $oTabsPane
+    $oTreeWalker.GetParentElement($oTab, $pTabsPane)
+    If Not $pTabsPane Then
+        ConsoleWrite("Warning: Failed to set $pTabsPane." & @CRLF)
+        Return 0
+    EndIf
+    $oTabsPane = ObjCreateInterface($pTabsPane, $sIID_IUIAutomationElement, $dtag_IUIAutomationElement)
+    If Not IsObj($oTabsPane) Then
+        ConsoleWrite("Warning: Failed to set $oTabsPane." & @CRLF)
+        Return 0
+    EndIf
+    Local $tabsPaneRuntimeIdPropertyId4
+    $oTabsPane.GetCurrentPropertyValue($UIA_RuntimeIdPropertyId, $tabsPaneRuntimeIdPropertyId4)
+    Local $tabsPaneRuntimeIdPropertyIdStr
+    arrayToString($tabsPaneRuntimeIdPropertyId4, $tabsPaneRuntimeIdPropertyIdStr)
+    If Not MapExists($pTabsPaneToWindowHandleMap, $tabsPaneRuntimeIdPropertyIdStr) Then
+        ConsoleWrite("Warning: No $tabsPaneRuntimeIdPropertyIdStr in $pTabsPaneToWindowHandleMap found." & @CRLF)
+        Return 0
+    EndIf
+    Local $windowHandle = $pTabsPaneToWindowHandleMap[$tabsPaneRuntimeIdPropertyIdStr]
+    If Not MapExists($UIACacheMap, $windowHandle) Then
+        ConsoleWrite("Warning: No $windowHandle in $UIACacheMap found." & @CRLF)
+        Return 0
+    EndIf
+    $oTab.AddRef()
+    If MapExists($UIACacheMap[$windowHandle], "oEventSelectedTab") Then
+        Local $oOldTab = $UIACacheMap[$windowHandle]["oEventSelectedTab"]
+        $oOldTab.Release()
+    EndIf
+    $UIACacheMap[$windowHandle]["oEventSelectedTab"] = $oTab
+    Return 0
+    #forceref $pSelf
 EndFunc
 
 Func chromeWindowHandleWhenMouseInChromeTabsArea()
@@ -360,14 +511,9 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
     EndIf
     Local $bottomBound = -1
     Local $rightBound = -1
-    If Not MapExists($UIACacheMap, $windowHandle) Then
-        Local $map[]
-        $map["tabsPane"] = tabsPane($windowHandle) ; the direct parent of tab items
-        $map["tabsArea"] = tabsArea($map["tabsPane"]) ; a parent of tabsPane that has the bounding box extening all the way to the system buttons
-        $UIACacheMap[$windowHandle] = $map
-    EndIf
+    cacheWindowInfo($windowHandle)
     ; TODO(nurupo): change to the dot notation once https://www.autoitscript.com/trac/autoit/ticket/3924 is fixed
-    Local $tabsAreaBoundingBox = boundingBox($UIACacheMap[$windowHandle]["tabsArea"])
+    Local $tabsAreaBoundingBox = boundingBox($UIACacheMap[$windowHandle]["oTabsBoundingBoxElement"])
     If IsArray($tabsAreaBoundingBox) Then
         positionToCoordinates($tabsAreaBoundingBox)
         $bottomBound = $tabsAreaBoundingBox[3]
@@ -438,20 +584,20 @@ Func onMouseWheel($event)
     While $eventListSize > 0
         Local $processed = False
         If Not $cfgWrapAround And _
-            (($eventList[$eventListSize-1] == $TAB_SCROLL_LEFT  And isTabSelected($UIACacheMap[$windowHandle]["tabsPane"], $TAB_FIRST)) Or _
-             ($eventList[$eventListSize-1] == $TAB_SCROLL_RIGHT And isTabSelected($UIACacheMap[$windowHandle]["tabsPane"], $TAB_LAST))) Then
+            (($eventList[$eventListSize-1] == $TAB_SCROLL_LEFT  And isEdgeTabSelected($UIACacheMap[$windowHandle]["oTabsPane"], $TAB_FIRST)) Or _
+             ($eventList[$eventListSize-1] == $TAB_SCROLL_RIGHT And isEdgeTabSelected($UIACacheMap[$windowHandle]["oTabsPane"], $TAB_LAST))) Then
             $eventListSize = 0
             ExitLoop
         EndIf
         Local $windowStateBitmask = WinGetState($windowHandle)
         If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
-            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
+            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
             $processed = True
         ElseIf $cfgAutofocus Then
             Switch $cfgAutofocusAfterwards
                 Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
                     If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                        dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
+                        dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                         $processed = True
                     EndIf
                 Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
@@ -516,10 +662,8 @@ Func onMouseWheel($event)
                                 ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
                             EndIf
                         Until $windowPosSuccess Or $count == 0
-                        If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                            dequeueAndProcessEvents($windowHandle, $UIACacheMap[$windowHandle]["tabsPane"], $eventList, $eventListSize)
-                            $processed = True
-                        EndIf
+                        dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
+                        $processed = True
                         ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
                         Do
                             Local $count = 0
@@ -556,35 +700,9 @@ Func onMouseWheel($event)
     $processing = False
 EndFunc
 
-Func dequeueAndProcessEvents($windowHandle, ByRef $tabsPane, ByRef $eventList, ByRef $eventListSize)
-    ; send input to the last matching window to prevent the tab preview pop-up from eating the hotkey combination we send
-    Local $controls = _WinAPI_EnumChildWindows($windowHandle, False)
-    Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
-    For $i = $controls[0][0] To 1 Step -1
-        If $controls[$i][1] == $CHROME_CONTROL_CLASS_NAME Then
-            $controlHandle = $controls[$i][0]
-            ExitLoop
-        EndIf
-    Next
-    While $eventListSize > 0
-        ; move the mouse in place to give focus to the tabs area to prevent pages in the document area from occasionally scrolling up/down
-        Local $mousePos = MouseGetPos()
-        MouseMove($mousePos[0], $mousePos[1], 10)
-        $eventListSize -= 1
-        Local $event = $eventList[$eventListSize]
-        Switch $event
-            Case $TAB_SCROLL_LEFT
-                ControlSend($windowHandle, "", $controlHandle, "^{PGUP}")
-            Case $TAB_SCROLL_RIGHT
-                ControlSend($windowHandle, "", $controlHandle, "^{PGDN}")
-        EndSwitch
-        If Not $cfgWrapAround And _
-            (($event == $TAB_SCROLL_LEFT  And isTabSelected($tabsPane, $TAB_FIRST)) Or _
-             ($event == $TAB_SCROLL_RIGHT And isTabSelected($tabsPane, $TAB_LAST))) Then
-            $eventListSize = 0
-            ExitLoop
-        EndIf
-    WEnd
+Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
+    $eventListSize -= 1
+    selectTab($windowHandle, $eventList[$eventListSize])
 EndFunc
 
 Func readConfig()
