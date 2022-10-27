@@ -85,6 +85,13 @@ If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
     fatalError("Another instance of this application is already running")
 EndIf
 
+Global $aauInitiallyActive
+Global $aauInitialWinList
+Global $aauTopmostWinList
+Global $aauFoundIndex
+Global $aauSetWindowPosCount
+Global $aauEpilogueNeeded = False
+
 Global Enum $TAB_FIRST, _
             $TAB_LAST
 Global $UIACacheMap[]
@@ -128,6 +135,9 @@ While 1
 WEnd
 
 Func fatalError($msg)
+    If $aauEpilogueNeeded Then
+        autofocusAfterwardsUndoEpilogue()
+    EndIf
     MsgBox($MB_ICONERROR, FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " - Fatal Error", _
            $msg & "." & @CRLF & @CRLF & "The application will terminate due to the error.")
     Exit
@@ -601,94 +611,34 @@ Func onMouseWheel($event)
                         $processed = True
                     EndIf
                 Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
-                    Local $initiallyActive = WinGetHandle("[ACTIVE]")
-                    Local $initialWinList = WinList()
-                    Local $topmostWinList[$initialWinList[0][0]+1]
-                    Local $foundIndex = -1
-                    Local $setWindowPosCount = 0
+                    $aauInitiallyActive = WinGetHandle("[ACTIVE]")
+                    $aauInitialWinList = WinList()
+                    Dim $aauTopmostWinList[$aauInitialWinList[0][0]+1]
+                    $aauFoundIndex = -1
+                    $aauSetWindowPosCount = 0
                     ; figure out which windows we want to make temporarily topmost and which are already topmost
-                    For $i = 1 to $initialWinList[0][0]
-                        If $initialWinList[$i][1] == $windowHandle Then
-                            $foundIndex = $i
+                    For $i = 1 to $aauInitialWinList[0][0]
+                        If $aauInitialWinList[$i][1] == $windowHandle Then
+                            $aauFoundIndex = $i
                         EndIf
-                        $topmostWinList[$i] = False
-                        Local $state = WinGetState($initialWinList[$i][1])
+                        $aauTopmostWinList[$i] = False
+                        Local $state = WinGetState($aauInitialWinList[$i][1])
                         If BitAND($state, $WIN_STATE_VISIBLE) And Not BitAND($state, $WIN_STATE_MINIMIZED) Then
-                            $topmostWinList[$i] = BitAND(_WinAPI_GetWindowLong($initialWinList[$i][1], $GWL_EXSTYLE), $WS_EX_TOPMOST) == $WS_EX_TOPMOST
-                            If ($foundIndex == -1 And $initialWinList[$i][0] <> "") Or $topmostWinList[$i] Then
-                                $setWindowPosCount += 1
+                            $aauTopmostWinList[$i] = BitAND(_WinAPI_GetWindowLong($aauInitialWinList[$i][1], $GWL_EXSTYLE), $WS_EX_TOPMOST) == $WS_EX_TOPMOST
+                            If ($aauFoundIndex == -1 And $aauInitialWinList[$i][0] <> "") Or $aauTopmostWinList[$i] Then
+                                $aauSetWindowPosCount += 1
                             Else
-                                $initialWinList[$i][1] = 0
+                                $aauInitialWinList[$i][1] = 0
                             EndIf
                         Else
-                            $initialWinList[$i][1] = 0
+                            $aauInitialWinList[$i][1] = 0
                         EndIf
                     Next
-                    If $foundIndex > 0 And $setWindowPosCount > 0 Then
-                        Do
-                            Local $count = 0
-                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
-                            ; first move non-topmost windows to the top (by making them temporarily topmost)
-                            For $i = $foundIndex-1 To 1 Step -1
-                                If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
-                                    $count += 1
-                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                    ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                    If Not $windowPosInfo Then
-                                        ;ConsoleWrite("! removing" & @CRLF)
-                                        $initialWinList[$i][1] = 0
-                                        ExitLoop
-                                    EndIf
-                                EndIf
-                            Next
-                            ; then move all of the topmost ones to the top, over the temporarily topmost ones
-                            If $windowPosInfo Then
-                                For $i = $initialWinList[0][0] To 1 Step -1
-                                    If $initialWinList[$i][1] And $topmostWinList[$i] Then
-                                        $count += 1
-                                        $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                        ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                        If Not $windowPosInfo Then
-                                            ;ConsoleWrite("! removing" & @CRLF)
-                                            $initialWinList[$i][1] = 0
-                                            ExitLoop
-                                        EndIf
-                                    EndIf
-                                Next
-                            EndIf
-                            Local $windowPosSuccess = False
-                            If $windowPosInfo Then
-                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
-                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
-                            EndIf
-                        Until $windowPosSuccess Or $count == 0
+                    If $aauFoundIndex > 0 And $aauSetWindowPosCount > 0 Then
+                        autofocusAfterwardsUndoPrologue()
                         dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
                         $processed = True
-                        ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
-                        Do
-                            Local $count = 0
-                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
-                            For $i = $foundIndex-1 To 1 Step -1
-                                If $initialWinList[$i][1] And Not $topmostWinList[$i] And WinExists($initialWinList[$i][1]) Then
-                                    $count += 1
-                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                    ;ConsoleWrite("-tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                    ; it might fail if a window has disappeared, so re-do the whole Defer setup without that window
-                                    If Not $windowPosInfo Then
-                                        ;ConsoleWrite("! removing" & @CRLF)
-                                        $initialWinList[$i][1] = 0
-                                        ExitLoop
-                                    EndIf
-                                EndIf
-                            Next
-                            Local $windowPosSuccess = False
-                            If $windowPosInfo Then
-                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
-                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
-                            EndIf
-                        Until $windowPosSuccess Or $count == 0
-                        WinActivate($initiallyActive)
-                        _WinWaitActive($initiallyActive, "", 1)
+                        autofocusAfterwardsUndoEpilogue()
                     EndIf
             EndSwitch
         EndIf
@@ -698,6 +648,76 @@ Func onMouseWheel($event)
         EndIf
     WEnd
     $processing = False
+EndFunc
+
+Func autofocusAfterwardsUndoPrologue()
+    Do
+        Local $count = 0
+        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($aauSetWindowPosCount)
+        ; first move non-topmost windows to the top (by making them temporarily topmost)
+        For $i = $aauFoundIndex-1 To 1 Step -1
+            If $aauInitialWinList[$i][1] And Not $aauTopmostWinList[$i] Then
+                $count += 1
+                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $aauInitialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $aauInitialWinList[$i][1] & ", " & $aauInitialWinList[$i][0] & @CRLF)
+                If Not $windowPosInfo Then
+                    ;ConsoleWrite("! removing" & @CRLF)
+                    $aauInitialWinList[$i][1] = 0
+                    ExitLoop
+                EndIf
+            EndIf
+        Next
+        ; then move all of the topmost ones to the top, over the temporarily topmost ones
+        If $windowPosInfo Then
+            For $i = $aauInitialWinList[0][0] To 1 Step -1
+                If $aauInitialWinList[$i][1] And $aauTopmostWinList[$i] Then
+                    $count += 1
+                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $aauInitialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                    ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $aauInitialWinList[$i][1] & ", " & $aauInitialWinList[$i][0] & @CRLF)
+                    If Not $windowPosInfo Then
+                        ;ConsoleWrite("! removing" & @CRLF)
+                        $aauInitialWinList[$i][1] = 0
+                        ExitLoop
+                    EndIf
+                EndIf
+            Next
+        EndIf
+        Local $windowPosSuccess = False
+        If $windowPosInfo Then
+            $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+            ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
+        EndIf
+    Until $windowPosSuccess Or $count == 0
+    $aauEpilogueNeeded = True
+EndFunc
+
+Func autofocusAfterwardsUndoEpilogue()
+    ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
+    Do
+        Local $count = 0
+        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($aauSetWindowPosCount)
+        For $i = $aauFoundIndex-1 To 1 Step -1
+            If $aauInitialWinList[$i][1] And Not $aauTopmostWinList[$i] And WinExists($aauInitialWinList[$i][1]) Then
+                $count += 1
+                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $aauInitialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                ;ConsoleWrite("-tmp on-top: " & $windowPosInfo & ", " & $aauInitialWinList[$i][1] & ", " & $aauInitialWinList[$i][0] & @CRLF)
+                ; it might fail if a window has disappeared, so re-do the whole Defer setup without that window
+                If Not $windowPosInfo Then
+                    ;ConsoleWrite("! removing" & @CRLF)
+                    $aauInitialWinList[$i][1] = 0
+                    ExitLoop
+                EndIf
+            EndIf
+        Next
+        Local $windowPosSuccess = False
+        If $windowPosInfo Then
+            $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+            ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
+        EndIf
+    Until $windowPosSuccess Or $count == 0
+    $aauEpilogueNeeded = False
+    WinActivate($aauInitiallyActive)
+    _WinWaitActive($aauInitiallyActive, "", 1)
 EndFunc
 
 Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
