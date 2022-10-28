@@ -20,6 +20,7 @@
 
 #AutoIt3Wrapper_UseUpx=n
 #AutoIt3Wrapper_icon=icon.ico
+#AutoIt3Wrapper_Res_Language=1033
 #AutoIt3Wrapper_Res_Icon_Add=icon_disabled_right.ico
 #AutoIt3Wrapper_Res_ProductName=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
@@ -29,15 +30,20 @@
 #AutoIt3Wrapper_Res_CompanyName=Maxim Biro (nurupo)
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright 2017-2022 Maxim Biro (nurupo)
 
-Global Const $PROJECT_HOMEPAGE_URL = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
-Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
+Global Const $PROJECT_GITHUB_URL     = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
+Global Const $PROJECT_GITHUB_API_URL = "https://api.github.com/repos/nurupo/chrome-mouse-wheel-tab-scroller"
+Global Const $PROJECT_HOMEPAGE_URL   = $PROJECT_GITHUB_URL
+Global Const $PROJECT_DONATE_URL     = "https://github.com/sponsors/nurupo"
 
 #include <EditConstants.au3>
+#include <FileConstants.au3>
 #include <GUIConstants.au3>
 #include <GUIConstantsEx.au3>
+#include <InetConstants.au3>
 #include <Misc.au3>
 #include <MsgBoxConstants.au3>
 #include <StaticConstants.au3>
+#include <StringConstants.au3>
 #include <TrayConstants.au3>
 #include <WinAPIProc.au3>
 #include <WinAPIRes.au3>
@@ -51,7 +57,9 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 Opt("MustDeclareVars", 1)
 Opt("SendKeyDelay", 0)
 Opt("SendKeyDownDelay", 0)
+Opt("TCPTimeout", 5000)
 Opt("WinWaitDelay", 1)
+AutoItWinSetTitle(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME))
 
 ; Chrome offsets and class name
 Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
@@ -73,6 +81,7 @@ Global $cfgReverse = Null
 Global $cfgWrapAround = Null
 Global $cfgAutofocus = Null
 Global $cfgAutofocusAfterwards = Null
+Global $cfgCheckUpdateLaunch = Null
 
 ; Other application state
 Global Enum $MOUSE_WHEEL_SCROLL_UP_EVENT, _
@@ -81,16 +90,16 @@ Global Enum $TAB_SCROLL_LEFT, _
             $TAB_SCROLL_RIGHT
 Global $disabled = False
 
-If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
-    fatalError("Another instance of this application is already running")
-EndIf
-
 Global $aauInitiallyActive
 Global $aauInitialWinList
 Global $aauTopmostWinList
 Global $aauFoundIndex
 Global $aauSetWindowPosCount
 Global $aauEpilogueNeeded = False
+
+If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
+    fatalError("Another instance of this application is already running")
+EndIf
 
 Global Enum $TAB_FIRST, _
             $TAB_LAST
@@ -108,6 +117,17 @@ Else
     If Not IsObj($oUIAEH_AutomationEventHandler) Then fatalError("Failed to create $oUIAEH_AutomationEventHandler")
 EndIf
 
+Global Const $WM_TRAYNOTIFY = $WM_USER + 1
+Global Const $NIN_BALLOONUSERCLICK = $WM_USER + 5
+Global Const $AUTOIT_SUBCLASS_ID = 20221027
+Global $autoitSubclassCallback = DllCallbackRegister("autoItWinSubclass", "lresult", "hwnd;uint;wparam;lparam;uint_ptr;dword_ptr")
+DllCall("comctl32.dll", "bool", "SetWindowSubclass", "hwnd", autoItWinGetHandle(), "ptr", DllCallbackGetPtr($autoitSubclassCallback), "uint_ptr", $AUTOIT_SUBCLASS_ID, "dword_ptr", 0)
+OnAutoItExitRegister("onExit")
+Func onExit()
+    DllCall("comctl32.dll", "bool", "RemoveWindowSubclass", "hwnd", autoItWinGetHandle(), "ptr", DllCallbackGetPtr($autoitSubclassCallback), "uint_ptr", $AUTOIT_SUBCLASS_ID)
+    DllCallbackFree($autoitSubclassCallback)
+EndFunc
+
 Global Const $inputHandlerForm = GUICreate(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & " Raw Input Handler Window")
 setupRawInputHandler()
 
@@ -120,6 +140,8 @@ Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAut
 Global $trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
 Global $trayDisable = TrayCreateItem("Disable")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
+TrayCreateItem("")
+Global $trayCheckUpdateLaunch = TrayCreateItem("Check for updates on launch")
 Global $trayAbout = TrayCreateItem("About")
 TrayCreateItem("")
 Global $trayExit = TrayCreateItem("Exit")
@@ -192,6 +214,9 @@ Func processTrayEvents()
             writeConfig()
         Case $trayAutofocusAfterwardsUndo
             $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+            writeConfig()
+        Case $trayCheckUpdateLaunch
+            $cfgCheckUpdateLaunch = Not $cfgCheckUpdateLaunch
             writeConfig()
         Case $trayAbout
             Local $trayAboutState = TrayItemGetState($trayAbout)
@@ -734,6 +759,7 @@ Func readConfig()
         ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH &", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
         $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
     EndIf
+    $cfgCheckUpdateLaunch = Int(IniRead($CFG_FILE_PATH, "options", "checkUpdateLaunch", 1)) == 1
 EndFunc
 
 Func writeConfig()
@@ -743,6 +769,7 @@ Func writeConfig()
     IniWrite($CFG_FILE_PATH, "options", "wrapAround", Int($cfgWrapAround))
     IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
     IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", $cfgAutofocusAfterwards)
+    IniWrite($CFG_FILE_PATH, "options", "checkUpdateLaunch", Int($cfgCheckUpdateLaunch))
 EndFunc
 
 Func processConfig()
@@ -764,10 +791,82 @@ Func processConfig()
         Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
             TrayItemSetState($trayAutofocusAfterwardsUndo, $TRAY_CHECKED)
     EndSwitch
+
+    If $cfgCheckUpdateLaunch Then
+        TrayItemSetState($trayCheckUpdateLaunch, $TRAY_CHECKED)
+        checkUpdate(False)
+    EndIf
+EndFunc
+
+Func checkUpdate($verbose)
+    Local $latestJson = BinaryToString(InetRead($PROJECT_GITHUB_API_URL & "/releases/latest", $INET_FORCERELOAD), $SB_UTF8)
+    Local $latestTagName = jsonValue($latestJson, "tag_name")
+    If Not IsString($latestTagName) Then
+        If $verbose Then
+            TrayTip("Failed to fetch the update information", "Unable to fetch the update information", 30)
+        EndIf
+        Return
+    EndIf
+    Local $latestPublishedAt = releaseDate($latestJson, "published_at")
+    If $latestTagName == ("v" & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION)) Then
+        If $verbose Then
+            TrayTip("Already up to date!", "The latest version is: " & $latestTagName & $latestPublishedAt, 30)
+        EndIf
+        Return
+    EndIf
+    Local $currentJson = BinaryToString(InetRead($PROJECT_GITHUB_API_URL & "/releases/tag/" & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION), $INET_FORCERELOAD), $SB_UTF8)
+    Local $currentPublishedAt = releaseDate($currentJson, "published_at")
+    TrayTip("An update is availalbe", "Current version: " & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION) & $currentPublishedAt & @CRLF & _
+                                      "New version: " & $latestTagName & $latestPublishedAt, 30)
+    Return
+EndFunc
+
+Func releaseDate(ByRef $json, $key)
+    Local $date = jsonValue($json, $key)
+    If IsString($date) Then
+        $date = StringSplit($date, "T")
+        If IsArray($date) Then
+            $date = " (" & $date[1] & ")"
+        EndIf
+    EndIf
+    If Not IsString($date) Then
+        $date = ""
+    EndIf
+    Return $date
+EndFunc
+
+Func jsonValue(ByRef $json, $key)
+    Local $tagNamePos = StringInStr($json, '"' & $key & '"')
+    If $tagNamePos > 0 Then
+        Local $tagNamePos1 = StringInStr($json, '"', 0, 3, $tagNamePos)
+        Local $tagNamePos2 = StringInStr($json, '"', 0, 4, $tagNamePos)
+        If $tagNamePos1 > 0 And $tagNamePos2 > 0 Then
+            Return StringMid($json, $tagNamePos1+1, $tagNamePos2-$tagNamePos1-1)
+        EndIf
+    EndIf
+    Return Null
+EndFunc
+
+Func autoItWinSubclass($hwnd, $uMsg, $wParam, $lParam, $uIdSubclass, $dwRefData)
+    #forceref $hwnd, $uMsg, $wParam, $lParam, $uIdSubclass, $dwRefData
+    If $uMsg = $WM_TRAYNOTIFY And $uIdSubclass = $AUTOIT_SUBCLASS_ID And $lParam = $NIN_BALLOONUSERCLICK Then
+        ; we could use html_url from GitHub API to link to the latest release directly, but I prefer linking to the Releases page instead
+        ShellExecute($PROJECT_GITHUB_URL & "/releases")
+    EndIf
+    Return DllCall("comctl32.dll", "lresult", "DefSubclassProc", "hwnd", $hwnd, "uint", $uMsg, "wparam", $wParam, "lparam", $lParam)[0]
+EndFunc
+
+Func autoItWinGetHandle()
+    Local $oldTitle = AutoItWinGetTitle()
+    Local $newTitle = FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & String(Random(0, (2^31)-1))
+    AutoItWinSetTitle($newTitle)
+    Local $windowHandle = WinGetHandle($newTitle)
+    AutoItWinSetTitle($oldTitle)
+    Return $windowHandle
 EndFunc
 
 Func aboutDialog()
-    Local $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST,$WS_EX_WINDOWEDGE))
+    Local $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST, $WS_EX_WINDOWEDGE))
     ; Disable the maximize button (no layouting breaks the form when maximized)
     _WinAPI_SetWindowLong(-1, $GWL_STYLE, BitXOr(_WinAPI_GetWindowLong(-1, $GWL_STYLE), $WS_MAXIMIZEBOX))
     GUISetBkColor(0xFFFFFF)
@@ -778,16 +877,20 @@ Func aboutDialog()
     GUICtrlSetFont(-1, 12)
     GUICtrlCreateLabel(FileGetVersion(@AutoItExe, $FV_LEGALCOPYRIGHT), 152, 88, 526, 20)
     GUICtrlSetFont(-1, 10)
-    GUICtrlCreateLabel("Version " & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION), 152, 112, 385, 20)
+    GUICtrlCreateLabel("Version " & FileGetVersion(@AutoItExe, $FV_PRODUCTVERSION), 152, 112, 274, 20)
     GUICtrlSetFont(-1, 10)
-    Local $labelHomepage = GUICtrlCreateLabel("Homepage", 544, 112, 66, 20)
+    Local $labelHomepage = GUICtrlCreateLabel("Homepage", 421, 112, 66, 20)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
-    GUICtrlSetCursor (-1, $MCID_HAND)
+    GUICtrlSetCursor(-1, $MCID_HAND)
+    Local $labelCheckUpdate = GUICtrlCreateLabel("Check for updates", 501, 112, 109, 20)
+    GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
+    GUICtrlSetColor(-1, 0x0000FF)
+    GUICtrlSetCursor(-1, $MCID_HAND)
     Local $labelDonate = GUICtrlCreateLabel("Donate", 624, 112, 45, 20)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
-    GUICtrlSetCursor (-1, $MCID_HAND)
+    GUICtrlSetCursor(-1, $MCID_HAND)
     GUICtrlCreateEdit("", 8, 144, 665, 201, BitOR($ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $ES_READONLY, $ES_WANTRETURN, $WS_VSCROLL))
     GUICtrlSetData(-1, StringFormat( _
         FileGetVersion(@AutoItExe, $FV_PRODUCTNAME) & @CRLF & _
@@ -811,7 +914,7 @@ Func aboutDialog()
         "x icon" & @CRLF & _
         "Author: iconpack (https://www.iconfinder.com/iconpack)" & @CRLF & _
         "Homepage: https://www.iconfinder.com/icons/1398917/circle_close_cross_delete_incorrect_invalid_x_icon" _
-        ))
+    ))
     GUICtrlSetFont(-1, 10)
     GUICtrlSetBkColor(-1, 0xFFFFFF)
     GUISetState(@SW_SHOW)
@@ -824,6 +927,11 @@ Func aboutDialog()
                 ShellExecute($PROJECT_HOMEPAGE_URL)
             Case $labelDonate
                 ShellExecute($PROJECT_DONATE_URL)
+            Case $labelCheckUpdate
+                GUISetCursor($MCID_WAIT, $GUI_CURSOR_OVERRIDE, $formAbout)
+                Sleep(1) ; for the cursor to get set
+                checkUpdate(True)
+                GUISetCursor($MCID_ARROW, $GUI_CURSOR_NOOVERRIDE, $formAbout)
         EndSwitch
         mainEventLoop()
     WEnd
