@@ -388,10 +388,10 @@ Func selectTab($windowHandle, $direction)
     Local $oTabsPane = $UIACacheMap[$windowHandle]["oTabsPane"]
     Local $oSelectedTab = Null
 
-    If isTabSelected($UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]) Then
-        $oSelectedTab = $UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]
-    ElseIf isTabSelected($UIACacheMap[$windowHandle]["oEventSelectedTab"]) Then
+    If isTabSelected($UIACacheMap[$windowHandle]["oEventSelectedTab"]) Then
         $oSelectedTab = $UIACacheMap[$windowHandle]["oEventSelectedTab"]
+    ElseIf isTabSelected($UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]) Then
+        $oSelectedTab = $UIACacheMap[$windowHandle]["oPreviouslySelectedTab"]
     Else
         $oSelectedTab = selectedTab($oTabsPane)
     EndIf
