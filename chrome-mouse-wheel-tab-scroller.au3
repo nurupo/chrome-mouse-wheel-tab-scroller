@@ -520,10 +520,6 @@ Func UIAEH_AutomationEventHandler_HandleAutomationEvent($pSelf, $pSender, $iEven
         Return 0
     EndIf
     $oTab.AddRef()
-    If MapExists($UIACacheMap[$windowHandle], "oEventSelectedTab") Then
-        Local $oOldTab = $UIACacheMap[$windowHandle]["oEventSelectedTab"]
-        $oOldTab.Release()
-    EndIf
     $UIACacheMap[$windowHandle]["oEventSelectedTab"] = $oTab
     Return 0
     #forceref $pSelf
