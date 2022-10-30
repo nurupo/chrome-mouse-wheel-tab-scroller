@@ -62,10 +62,6 @@ Opt("WinWaitDelay", 1)
 AutoItWinSetTitle(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME))
 
 ; Chrome offsets and class name
-Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
-Global Const $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED = 46
-Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED = 200
-Global Const $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED = 192
 Global Const $CHROME_WINDOW_CLASS_NAME_PREFIX = "Chrome_WidgetWin_"
 Global Const $CHROME_CONTROL_CLASS_NAME = "Chrome_RenderWidgetHostHWND"
 
@@ -549,18 +545,6 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
         positionToCoordinates($tabsAreaBoundingBox)
         $bottomBound = $tabsAreaBoundingBox[3]
         $rightBound = $tabsAreaBoundingBox[2]
-    Else
-        ; fallback to the hardcoded bounding box
-        Local $windowPos = WinGetPos($windowHandle)
-        positionToCoordinates($windowPos)
-        Local $windowStateBitmask = WinGetState($windowHandle)
-        If BitAND($windowStateBitmask, $WIN_STATE_MAXIMIZED) Then
-            $bottomBound = $windowPos[1] + $CHROME_TABS_AREA_HEIGHT_MAXIMIZED + 20
-            $rightBound = $windowPos[2] - $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_MAXIMIZED - 20
-        Else
-            $bottomBound = $windowPos[1] + $CHROME_TABS_AREA_HEIGHT_NOT_MAXIMIZED + 20
-            $rightBound = $windowPos[2] - $CHROME_NONTABS_AREA_RIGHT_WIDTH_OFFSET_NOT_MAXIMIZED - 20
-        EndIf
     EndIf
     If $mousePos[1] <= $bottomBound And $mousePos[0] <= $rightBound Then
         Return $windowHandle
