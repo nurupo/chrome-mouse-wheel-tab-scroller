@@ -1,3 +1,32 @@
+# Abandoned branch
+
+This is an abandoned branch.
+
+Windows UI Automation API (aka UIA) looked very promising for the purpose of switching Chrome tabs as it allows us to:
+
+  - Get the actual size of the tabs area, instead of relying on the hardcoded offsets
+  - Check if the first and last tabs are currently selected, allowing for an option to prevent tab scrolling from wraping around
+  - Avoid having to send key presses triggering next/previous tab hotkeys, which sometimes bug out, allowing to programatically select the next/previous tab
+  - Maybe more that I'm forgetting about
+
+However, as it was later realized, this came with certain drawbacks:
+
+  - [When using UIA, Chrome would consume more memory than usual](https://bugs.chromium.org/p/chromium/issues/detail?id=1379575)
+    - On average around 600 MiB per 80 of fully loaded tabs, but it really depends the contents
+    - In a worst case with just 5 loaded tabs, Chrome can go from using 7.5 GiB of memory to 20.5 GiB, becoming unresponsive for 100 seconds while allocating all this memory
+  - [When using UIA, Chrome would take a very long time to close](https://bugs.chromium.org/p/chromium/issues/detail?id=1379575)
+    - A window with 80 fully loaded tabs could take around 30 seconds to close, while being totally unresponsive in the process
+    - In some cases a window might close immediately, but leave chrome.exe processes that keep consuming many GiB of memory and 100% of a single CPU core
+  - Only visible tabs are accessible via UIA, if a tab goes off the screen -- it doesn't show up in the API call results, so we can't scroll to it
+    - Took me a while to realize as I was testing with less than 130 tabs in a full screen window on a 1440p monitor, so I didn't have any tabs go off the screen during the testing
+
+These drawbacks are big deal breakers, so UIA is abandoned in favor of sending keyboard shortcuts.
+
+Personally I'm upset that using UIA ended up not being viable and I have to discard all of my work and go back to the key-based solution.
+I have spent quite a bit of time working on this, and being able to disable scroll wrapping had me excited, as it was a big improvement towards the goal of imitating Chromium's behavior on Linux.
+
+---
+
 # Chrome Mouse Wheel Tab Scroller
 
 Program that allows you to scroll Google Chrome tabs using a mouse wheel.
