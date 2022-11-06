@@ -254,197 +254,189 @@ Func _WinWaitActive($windowHandle, $unused, $timeout)
         $activeFlag = BitAND($state, $WIN_STATE_ACTIVE)
     Until $activeFlag Or TimerDiff($timer) >= $timeout
     If $activeFlag Then
-        Local $leftToSleep = $cfgAutofocusFocusDelay
-        If $cfgAutofocusFocusDelay >= 2 Then
-            Local Static $ntdll = DllOpen("ntdll.dll")
-            Local Static $winmmdll = DllOpen("winmm.dll")
-            DllCall($winmmdll, "int", "timeBeginPeriod", "int", 1)
-            Local $timerDiff
-            Do
-                $timer = TimerInit()
-                DllCall($ntdll, "dword", "NtDelayExecution", "int", 0, "int64*", -5000)
-                $timerDiff = TimerDiff($timer)
-                $leftToSleep -= $timerDiff
-            Until $leftToSleep <= $timerDiff
-            DllCall($winmmdll, "int", "timeEndPeriod", "int", 1)
-        EndIf
-        If $leftToSleep > 0 Then
-            $timer = TimerInit()
-            Do
-            Until TimerDiff($timer) >= $leftToSleep
-        EndIf
+        _Sleep($cfgAutofocusFocusDelay)
     EndIf
     Return $activeFlag ? $windowHandle : 0
 EndFunc
 
-; This function might get called again in the middle if it already executing,
-; e.g. if a user makes a couple of mouse wheel events in a short succession.
-; This is due to some function calls used within this function processing the
-; event loop inside, resulting in the next mouse wheel event being processed
-; before the last one is done processing. This is undesirable, so to make sure
-; that only one function call is processing the mouse wheel events, we enqueue
-; the events and use a processing flag as a guard. The function is always
-; called from the same thread, so it's not a multi-threading issue but rather
-; an unintentional indirect recursion one.
+Func _Sleep($ms)
+    Local $leftToSleep = $ms
+    Local $timer
+    If $ms > 1 Then
+        Local Static $ntdll = DllOpen("ntdll.dll")
+        Local Static $winmmdll = DllOpen("winmm.dll")
+        DllCall($winmmdll, "int", "timeBeginPeriod", "int", 1)
+        Local $timerDiff
+        Do
+            $timer = TimerInit()
+            DllCall($ntdll, "dword", "NtDelayExecution", "int", 0, "int64*", -5000)
+            $timerDiff = TimerDiff($timer)
+            $leftToSleep -= $timerDiff
+        Until $leftToSleep <= $timerDiff
+        DllCall($winmmdll, "int", "timeEndPeriod", "int", 1)
+    EndIf
+    If $leftToSleep > 0 Then
+        $timer = TimerInit()
+        Do
+        Until TimerDiff($timer) >= $leftToSleep
+    EndIf
+EndFunc
+
 Func onMouseWheel($event)
     Local $windowHandle = chromeWindowHandleWhenMouseInChromeTabsArea()
     If Not $windowHandle Then
         Return
     EndIf
-    ; we assume that all queued events operate on the same Chrome window $windowHandle as in level 1 recursion, so we don't enqueue the $windowHandle along with the event
-    Local Static $processing = False
-    Local Static $eventList[128] ; from some testing, i find it hard to exceed 128, although not impossible, so that's a good starting capacity
-    Local Static $eventListSize = 0
-    ; enqueue the event
-    ; make sure the queue is big enough
-    If $eventListSize == UBound($eventList) Then
-        ReDim $eventList[Int(($eventListSize * 1.5) + 1)] ; we don't size down the array, but that should be fine (tm)
-    EndIf
-    $eventList[$eventListSize] = $event
-    $eventListSize += 1
-    ; return if we are not the first recusion level, let the first recursion level process all the events
-    If $processing Then
-        Return
-    EndIf
-    $processing = True
-    While $eventListSize > 0
-        Local $processed = False
-        Local $windowStateBitmask = WinGetState($windowHandle)
-        If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
-            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
-            $processed = True
-        ElseIf $cfgAutofocus Then
-            Switch $cfgAutofocusAfterwards
-                Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+    Local $windowStateBitmask = WinGetState($windowHandle)
+    If BitAND($windowStateBitmask, $WIN_STATE_ACTIVE) Then
+        processEvent($windowHandle, $event)
+    ElseIf $cfgAutofocus Then
+        Switch $cfgAutofocusAfterwards
+            Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+                If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
+                    processEvent($windowHandle, $event)
+                EndIf
+            Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+                Local $initiallyActive = WinGetHandle("[ACTIVE]")
+                Local $epilogueOpaque = autofocusAfterwardsUndoPrologue($windowHandle)
+                If $epilogueOpaque <> Null Then
                     If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                        dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
-                        $processed = True
+                        processEvent($windowHandle, $event)
                     EndIf
-                Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
-                    Local $initiallyActive = WinGetHandle("[ACTIVE]")
-                    Local $initialWinList = WinList()
-                    Local $topmostWinList[$initialWinList[0][0]+1]
-                    Local $foundIndex = -1
-                    Local $setWindowPosCount = 0
-                    ; figure out which windows we want to make temporarily topmost and which are already topmost
-                    For $i = 1 to $initialWinList[0][0]
-                        If $initialWinList[$i][1] == $windowHandle Then
-                            $foundIndex = $i
-                        EndIf
-                        $topmostWinList[$i] = False
-                        Local $state = WinGetState($initialWinList[$i][1])
-                        If BitAND($state, $WIN_STATE_VISIBLE) And Not BitAND($state, $WIN_STATE_MINIMIZED) Then
-                            $topmostWinList[$i] = BitAND(_WinAPI_GetWindowLong($initialWinList[$i][1], $GWL_EXSTYLE), $WS_EX_TOPMOST) == $WS_EX_TOPMOST
-                            If ($foundIndex == -1 And $initialWinList[$i][0] <> "") Or $topmostWinList[$i] Then
-                                $setWindowPosCount += 1
-                            Else
-                                $initialWinList[$i][1] = 0
-                            EndIf
-                        Else
-                            $initialWinList[$i][1] = 0
-                        EndIf
-                    Next
-                    If $foundIndex > 0 And $setWindowPosCount > 0 Then
-                        Do
-                            Local $count = 0
-                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
-                            ; first move non-topmost windows to the top (by making them temporarily topmost)
-                            For $i = $foundIndex-1 To 1 Step -1
-                                If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
-                                    $count += 1
-                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                    ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                    If Not $windowPosInfo Then
-                                        ;ConsoleWrite("! removing" & @CRLF)
-                                        $initialWinList[$i][1] = 0
-                                        ExitLoop
-                                    EndIf
-                                EndIf
-                            Next
-                            ; then move all of the topmost ones to the top, over the temporarily topmost ones
-                            If $windowPosInfo Then
-                                For $i = $initialWinList[0][0] To 1 Step -1
-                                    If $initialWinList[$i][1] And $topmostWinList[$i] Then
-                                        $count += 1
-                                        $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                        ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                        If Not $windowPosInfo Then
-                                            ;ConsoleWrite("! removing" & @CRLF)
-                                            $initialWinList[$i][1] = 0
-                                            ExitLoop
-                                        EndIf
-                                    EndIf
-                                Next
-                            EndIf
-                            Local $windowPosSuccess = False
-                            If $windowPosInfo Then
-                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
-                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
-                            EndIf
-                        Until $windowPosSuccess Or $count == 0
-                        If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
-                            dequeueAndProcessEvents($windowHandle, $eventList, $eventListSize)
-                            $processed = True
-                        EndIf
-                        ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
-                        Do
-                            Local $count = 0
-                            Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
-                            For $i = $foundIndex-1 To 1 Step -1
-                                If $initialWinList[$i][1] And Not $topmostWinList[$i] And WinExists($initialWinList[$i][1]) Then
-                                    $count += 1
-                                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
-                                    ;ConsoleWrite("-tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
-                                    ; it might fail if a window has disappeared, so re-do the whole Defer setup without that window
-                                    If Not $windowPosInfo Then
-                                        ;ConsoleWrite("! removing" & @CRLF)
-                                        $initialWinList[$i][1] = 0
-                                        ExitLoop
-                                    EndIf
-                                EndIf
-                            Next
-                            Local $windowPosSuccess = False
-                            If $windowPosInfo Then
-                                $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
-                                ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
-                            EndIf
-                        Until $windowPosSuccess Or $count == 0
-                        WinActivate($initiallyActive)
-                        _WinWaitActive($initiallyActive, "", 1)
-                    EndIf
-            EndSwitch
-        EndIf
-        ; discard the event queue if we can't process it
-        If Not $processed Then
-            $eventListSize = 0
-        EndIf
-    WEnd
-    $processing = False
+                    autofocusAfterwardsUndoEpilogue($epilogueOpaque)
+                    WinActivate($initiallyActive)
+                    _WinWaitActive($initiallyActive, "", 1)
+                EndIf
+        EndSwitch
+    EndIf
 EndFunc
 
-Func dequeueAndProcessEvents($windowHandle, ByRef $eventList, ByRef $eventListSize)
+Func autofocusAfterwardsUndoPrologue($windowHandle)
+    Local $initialWinList = WinList()
+    Local $topmostWinList[$initialWinList[0][0]+1]
+    Local $foundIndex = -1
+    Local $setWindowPosCount = 0
+    ; figure out which windows we want to make temporarily topmost and which are already topmost
+    For $i = 1 to $initialWinList[0][0]
+        If $initialWinList[$i][1] == $windowHandle Then
+            $foundIndex = $i
+        EndIf
+        $topmostWinList[$i] = False
+        Local $state = WinGetState($initialWinList[$i][1])
+        If BitAND($state, $WIN_STATE_VISIBLE) And Not BitAND($state, $WIN_STATE_MINIMIZED) Then
+            $topmostWinList[$i] = BitAND(_WinAPI_GetWindowLong($initialWinList[$i][1], $GWL_EXSTYLE), $WS_EX_TOPMOST) == $WS_EX_TOPMOST
+            If ($foundIndex == -1 And $initialWinList[$i][0] <> "") Or $topmostWinList[$i] Then
+                $setWindowPosCount += 1
+            Else
+                $initialWinList[$i][1] = 0
+            EndIf
+        Else
+            $initialWinList[$i][1] = 0
+        EndIf
+    Next
+    If $foundIndex <= 0 Or $setWindowPosCount <= 0 Then
+        Return Null
+    EndIf
+    Do
+        Local $count = 0
+        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+        ; first move non-topmost windows to the top (by making them temporarily topmost)
+        For $i = $foundIndex-1 To 1 Step -1
+            If $initialWinList[$i][1] And Not $topmostWinList[$i] Then
+                $count += 1
+                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                ;ConsoleWrite("+tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                If Not $windowPosInfo Then
+                    ;ConsoleWrite("! removing" & @CRLF)
+                    $initialWinList[$i][1] = 0
+                    ExitLoop
+                EndIf
+            EndIf
+        Next
+        ; then move all of the topmost ones to the top, over the temporarily topmost ones
+        If $windowPosInfo Then
+            For $i = $initialWinList[0][0] To 1 Step -1
+                If $initialWinList[$i][1] And $topmostWinList[$i] Then
+                    $count += 1
+                    $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_TOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                    ;ConsoleWrite("perm on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                    If Not $windowPosInfo Then
+                        ;ConsoleWrite("! removing" & @CRLF)
+                        $initialWinList[$i][1] = 0
+                        ExitLoop
+                    EndIf
+                EndIf
+            Next
+        EndIf
+        Local $windowPosSuccess = False
+        If $windowPosInfo Then
+            $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+            ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
+        EndIf
+    Until $windowPosSuccess Or $count == 0
+    Local $epilogueOpaque[4] = [$initialWinList, $topmostWinList, $foundIndex, $setWindowPosCount]
+    Return $epilogueOpaque
+EndFunc
+
+Func autofocusAfterwardsUndoEpilogue(ByRef $epilogueOpaque)
+    If Not IsArray($epilogueOpaque) Then
+        Return
+    EndIf
+    Local $initialWinList = $epilogueOpaque[0]
+    Local $topmostWinList = $epilogueOpaque[1]
+    Local $foundIndex = $epilogueOpaque[2]
+    Local $setWindowPosCount = $epilogueOpaque[3]
+    ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
+    Do
+        Local $count = 0
+        Local $windowPosInfo = _WinAPI_BeginDeferWindowPos($setWindowPosCount)
+        For $i = $foundIndex-1 To 1 Step -1
+            If $initialWinList[$i][1] And Not $topmostWinList[$i] And WinExists($initialWinList[$i][1]) Then
+                $count += 1
+                $windowPosInfo = _WinAPI_DeferWindowPos($windowPosInfo, $initialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+                ;ConsoleWrite("-tmp on-top: " & $windowPosInfo & ", " & $initialWinList[$i][1] & ", " & $initialWinList[$i][0] & @CRLF)
+                ; it might fail if a window has disappeared, so re-do the whole Defer setup without that window
+                If Not $windowPosInfo Then
+                    ;ConsoleWrite("! removing" & @CRLF)
+                    $initialWinList[$i][1] = 0
+                    ExitLoop
+                EndIf
+            EndIf
+        Next
+        Local $windowPosSuccess = False
+        If $windowPosInfo Then
+            $windowPosSuccess = _WinAPI_EndDeferWindowPos($windowPosInfo)
+            ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
+        EndIf
+    Until $windowPosSuccess Or $count == 0
+EndFunc
+
+Func hotkeyControl($windowHandle)
+    Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
     ; send input to the last matching window to prevent the tab preview pop-up from eating the hotkey combination we send
     Local $controls = _WinAPI_EnumChildWindows($windowHandle, False)
-    Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
+    Local $maxY = -2^31
     For $i = $controls[0][0] To 1 Step -1
         If $controls[$i][1] == $CHROME_CONTROL_CLASS_NAME Then
             $controlHandle = $controls[$i][0]
+            Local $pos = WinGetPos($controls[$i][0])
+            If IsArray($pos) Then
+                $maxY = $pos[1]
+            EndIf
             ExitLoop
         EndIf
     Next
-    While $eventListSize > 0
-        ; move the mouse in place to give focus to the tabs area to prevent pages in the document area from occasionally scrolling up/down
-        Local $mousePos = MouseGetPos()
-        MouseMove($mousePos[0], $mousePos[1], 10)
-        $eventListSize -= 1
-        Local $event = $eventList[$eventListSize]
-        Switch $event
-            Case $MOUSE_WHEEL_SCROLL_UP_EVENT
-                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
-            Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
-                ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
-        EndSwitch
-    WEnd
+    Return $controlHandle
+EndFunc
+
+Func processEvent($windowHandle, $event)
+    Local $controlHandle = hotkeyControl($windowHandle)
+    Switch $event
+        Case $MOUSE_WHEEL_SCROLL_UP_EVENT
+            ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
+        Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
+            ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
+    EndSwitch
 EndFunc
 
 Func readConfig()
