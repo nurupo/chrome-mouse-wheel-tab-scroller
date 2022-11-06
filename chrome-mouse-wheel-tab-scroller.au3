@@ -46,6 +46,7 @@ Global Const $PROJECT_DONATE_URL   = "https://github.com/sponsors/nurupo"
 #include <WindowsConstants.au3>
 
 Opt("MustDeclareVars", 1)
+Opt("WinWaitDelay", 0)
 
 ; Chrome offsets and class name
 Global Const $CHROME_TABS_AREA_HEIGHT_MAXIMIZED = 33
@@ -61,20 +62,23 @@ Global Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
 Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
             $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
             $CFG_AUTOFOCUS_AFTERWARDS_MAX
+Global $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES = [3, 4, 5, 8, 11, 15, 20, 25, 30, 35, 40, 50, 75, 100]
+Global $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX = 7 ; 25
+If $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX >= UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES) Or _
+    $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX < 0 Then
+    ConsoleWrite("Error: Fix $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX value" & @CRLF)
+EndIf
 
 ; Config state
 Global $cfgReverse = Null
 Global $cfgAutofocus = Null
 Global $cfgAutofocusAfterwards = Null
+Global $cfgAutofocusFocusDelay = Null
 
 ; Other application state
 Global Enum $MOUSE_WHEEL_SCROLL_UP_EVENT, _
             $MOUSE_WHEEL_SCROLL_DOWN_EVENT
 Global $disabled = False
-
-Opt("WinWaitDelay", 1)
-Opt("SendKeyDelay", 0)
-Opt("SendKeyDownDelay", 0)
 
 If _Singleton(FileGetVersion(@AutoItExe, $FV_PRODUCTNAME), 1) == 0 Then
     MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
@@ -90,6 +94,13 @@ Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
 Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
 Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
 Global $trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+Global $trayAutofocusFocusDelay = TrayCreateMenu("Wait after focusing")
+Global $trayAutofocusFocusDelayValues[UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES)]
+For $i = 0 To UBound($trayAutofocusFocusDelayValues)-1
+    $trayAutofocusFocusDelayValues[$i] = TrayCreateItem($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$i] & " ms" & _
+                                                   ($i == $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX ? " (Default)" : ""), _
+                                                   $trayAutofocusFocusDelay, -1, $TRAY_ITEM_RADIO)
+Next
 Global $trayDisable = TrayCreateItem("Disable")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
 Global $trayAbout = TrayCreateItem("About")
@@ -107,7 +118,8 @@ While 1
 WEnd
 
 Func processTrayEvents()
-    Switch TrayGetMsg()
+    Local $msg = TrayGetMsg()
+    Switch $msg
         Case $trayReverse
             $cfgReverse = Not $cfgReverse
             writeConfig()
@@ -161,6 +173,14 @@ Func processTrayEvents()
             EndIf
         Case $trayExit
             Exit
+        Case Else
+            For $i = 0 To UBound($trayAutofocusFocusDelayValues)-1
+                If $msg == $trayAutofocusFocusDelayValues[$i] Then
+                    $cfgAutofocusFocusDelay = $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$i]
+                    writeConfig()
+                    ExitLoop
+                EndIf
+            Next
     EndSwitch
 EndFunc
 
@@ -226,12 +246,34 @@ Func chromeWindowHandleWhenMouseInChromeTabsArea()
 EndFunc
 
 Func _WinWaitActive($windowHandle, $unused, $timeout)
-    Local $timer = TimerInit()
     Local $activeFlag = Null
+    $timeout *= 1000
+    Local $timer = TimerInit()
     Do
         Local $state = WinGetState($windowHandle)
         $activeFlag = BitAND($state, $WIN_STATE_ACTIVE)
-    Until $activeFlag Or TimerDiff($timer) >= $timeout*1000
+    Until $activeFlag Or TimerDiff($timer) >= $timeout
+    If $activeFlag Then
+        Local $leftToSleep = $cfgAutofocusFocusDelay
+        If $cfgAutofocusFocusDelay >= 2 Then
+            Local Static $ntdll = DllOpen("ntdll.dll")
+            Local Static $winmmdll = DllOpen("winmm.dll")
+            DllCall($winmmdll, "int", "timeBeginPeriod", "int", 1)
+            Local $timerDiff
+            Do
+                $timer = TimerInit()
+                DllCall($ntdll, "dword", "NtDelayExecution", "int", 0, "int64*", -5000)
+                $timerDiff = TimerDiff($timer)
+                $leftToSleep -= $timerDiff
+            Until $leftToSleep <= $timerDiff
+            DllCall($winmmdll, "int", "timeEndPeriod", "int", 1)
+        EndIf
+        If $leftToSleep > 0 Then
+            $timer = TimerInit()
+            Do
+            Until TimerDiff($timer) >= $leftToSleep
+        EndIf
+    EndIf
     Return $activeFlag ? $windowHandle : 0
 EndFunc
 
@@ -410,8 +452,24 @@ Func readConfig()
     $cfgAutofocus = Int(IniRead($CFG_FILE_PATH, "options", "autofocus", 1)) == 1
     $cfgAutofocusAfterwards = Int(IniRead($CFG_FILE_PATH, "options", "autofocusAfterwards", $CFG_AUTOFOCUS_AFTERWARDS_KEEP))
     If $cfgAutofocusAfterwards < 0 Or $cfgAutofocusAfterwards >= $CFG_AUTOFOCUS_AFTERWARDS_MAX Then
-        ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH &", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
+        ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH & _
+                     ", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
         $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+    EndIf
+    $cfgAutofocusFocusDelay = Int(IniRead($CFG_FILE_PATH, "options", "autofocusFocusDelay", _
+                                          $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX]))
+    Local $foundAutofocusFocusDelay = False
+    For $i = 0 To UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES)-1
+        If $cfgAutofocusFocusDelay == $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$i] Then
+            $foundAutofocusFocusDelay = True
+            ExitLoop
+        EndIf
+    Next
+    If Not $foundAutofocusFocusDelay Then
+        ConsoleWrite("Warning: Incorrect value for the autofocusFocusDelay option in " & $CFG_FILE_PATH & _
+                     ", using the default: autofocusFocusDelay=" & _
+                     $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX] & @CRLF)
+        $cfgAutofocusFocusDelay = $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX]
     EndIf
 EndFunc
 
@@ -420,7 +478,8 @@ Func writeConfig()
 
     IniWrite($CFG_FILE_PATH, "options", "reverse", Int($cfgReverse))
     IniWrite($CFG_FILE_PATH, "options", "autofocus", Int($cfgAutofocus))
-    IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", $cfgAutofocusAfterwards)
+    IniWrite($CFG_FILE_PATH, "options", "autofocusAfterwards", Int($cfgAutofocusAfterwards))
+    IniWrite($CFG_FILE_PATH, "options", "autofocusFocusDelay", Int($cfgAutofocusFocusDelay))
 EndFunc
 
 Func processConfig()
@@ -438,6 +497,13 @@ Func processConfig()
         Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
             TrayItemSetState($trayAutofocusAfterwardsUndo, $TRAY_CHECKED)
     EndSwitch
+
+    For $i = 0 To UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES)-1
+        If $cfgAutofocusFocusDelay == $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$i] Then
+            TrayItemSetState($trayAutofocusFocusDelayValues[$i], $TRAY_CHECKED)
+            ExitLoop
+        EndIf
+    Next
 EndFunc
 
 Func aboutDialog()
