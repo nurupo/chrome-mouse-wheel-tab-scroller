@@ -411,31 +411,14 @@ Func autofocusAfterwardsUndoEpilogue(ByRef $epilogueOpaque)
     Until $windowPosSuccess Or $count == 0
 EndFunc
 
-Func hotkeyControl($windowHandle)
-    Local $controlHandle = "" ; in rare occasions there is no matching control, so fallback to an empty string
-    ; send input to the last matching window to prevent the tab preview pop-up from eating the hotkey combination we send
-    Local $controls = _WinAPI_EnumChildWindows($windowHandle, False)
-    Local $maxY = -2^31
-    For $i = $controls[0][0] To 1 Step -1
-        If $controls[$i][1] == $CHROME_CONTROL_CLASS_NAME Then
-            $controlHandle = $controls[$i][0]
-            Local $pos = WinGetPos($controls[$i][0])
-            If IsArray($pos) Then
-                $maxY = $pos[1]
-            EndIf
-            ExitLoop
-        EndIf
-    Next
-    Return $controlHandle
-EndFunc
-
 Func processEvent($windowHandle, $event)
-    Local $controlHandle = hotkeyControl($windowHandle)
     Switch $event
         Case $MOUSE_WHEEL_SCROLL_UP_EVENT
-            ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGDN}" : "^{PGUP}")
+            Send($cfgReverse ? "^{PGDN}" : "^{PGUP}")
+            ControlSend($windowHandle, "", "", "^")
         Case $MOUSE_WHEEL_SCROLL_DOWN_EVENT
-            ControlSend($windowHandle, "", $controlHandle, $cfgReverse ? "^{PGUP}" : "^{PGDN}")
+            Send($cfgReverse ? "^{PGUP}" : "^{PGDN}")
+            ControlSend($windowHandle, "", "", "^")
     EndSwitch
 EndFunc
 
