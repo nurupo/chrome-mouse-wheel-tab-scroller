@@ -74,7 +74,8 @@ Global Const $CHROME_CONTROL_CLASS_NAME = "Chrome_RenderWidgetHostHWND"
 Global Const $CFG_DIR_PATH = @AppDataDir & "\chrome-mouse-wheel-tab-scroller"
 Global Const $CFG_FILE_PATH = $CFG_DIR_PATH & "\config.ini"
 Global Enum $CFG_AUTOFOCUS_AFTERWARDS_KEEP, _
-            $CFG_AUTOFOCUS_AFTERWARDS_UNDO, _
+            $CFG_AUTOFOCUS_AFTERWARDS_UNDO_SIMPLE, _
+            $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE, _
             $CFG_AUTOFOCUS_AFTERWARDS_MAX
 Global $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES = [3, 4, 5, 8, 11, 15, 20, 25, 30, 35, 40, 50, 75, 100]
 Global $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX = 7 ; 25
@@ -129,7 +130,8 @@ Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
 Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
 Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
 Global $trayAutofocusAfterwardsKeep = TrayCreateItem("Keep it focused", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
-Global $trayAutofocusAfterwardsUndo = TrayCreateItem("Undo the autofocus (Experimental)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+Global $trayAutofocusAfterwardsUndoSimple = TrayCreateItem("Undo the autofocus (fast but simple)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
+Global $trayAutofocusAfterwardsUndoComprehensive = TrayCreateItem("Undo the autofocus (comprehensive but slow)", $trayAutofocusAfterwards, -1, $TRAY_ITEM_RADIO)
 Global $trayAutofocusFocusDelay = TrayCreateMenu("Wait after focusing")
 Global $trayAutofocusFocusDelayValues[UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES)]
 For $i = 0 To UBound($trayAutofocusFocusDelayValues)-1
@@ -196,8 +198,11 @@ Func processTrayEvents()
         Case $trayAutofocusAfterwardsKeep
             $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
             writeConfig()
-        Case $trayAutofocusAfterwardsUndo
-            $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+        Case $trayAutofocusAfterwardsUndoSimple
+            $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO_SIMPLE
+            writeConfig()
+        Case $trayAutofocusAfterwardsUndoComprehensive
+            $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE
             writeConfig()
         Case $trayCheckUpdateOnLaunch
             $cfgCheckUpdateOnLaunch = Not $cfgCheckUpdateOnLaunch
@@ -355,14 +360,20 @@ Func onMouseWheel($event)
                 If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
                     processEvent($windowHandle, $event)
                 EndIf
-            Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
+            Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO_SIMPLE
+                ContinueCase
+            Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE
                 Local $initiallyActive = WinGetHandle("[ACTIVE]")
                 Local $epilogueOpaque = autofocusAfterwardsUndoPrologue($windowHandle)
                 If $epilogueOpaque <> Null Then
                     If WinActivate($windowHandle) <> 0 And _WinWaitActive($windowHandle, "", 1) <> 0 Then
                         processEvent($windowHandle, $event)
                     EndIf
-                    autofocusAfterwardsUndoEpilogue($epilogueOpaque)
+                    If $cfgAutofocusAfterwards == $CFG_AUTOFOCUS_AFTERWARDS_UNDO_SIMPLE Then
+                        autofocusAfterwardsUndoSimpleEpilogue($epilogueOpaque)
+                    ElseIf $cfgAutofocusAfterwards == $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE Then
+                        autofocusAfterwardsUndoComprehensiveEpilogue($epilogueOpaque)
+                    EndIf
                     WinActivate($initiallyActive)
                     _WinWaitActive($initiallyActive, "", 1)
                 EndIf
@@ -437,7 +448,7 @@ Func autofocusAfterwardsUndoPrologue($windowHandle)
     Return $epilogueOpaque
 EndFunc
 
-Func autofocusAfterwardsUndoEpilogue(ByRef $epilogueOpaque)
+Func autofocusAfterwardsUndoSimpleEpilogue(ByRef $epilogueOpaque)
     If Not IsArray($epilogueOpaque) Then
         Return
     EndIf
@@ -468,6 +479,28 @@ Func autofocusAfterwardsUndoEpilogue(ByRef $epilogueOpaque)
             ;ConsoleWrite("end: " & $windowPosSuccess & @CRLF)
         EndIf
     Until $windowPosSuccess Or $count == 0
+EndFunc
+
+Func autofocusAfterwardsUndoComprehensiveEpilogue(ByRef $epilogueOpaque)
+    If Not IsArray($epilogueOpaque) Then
+        Return
+    EndIf
+    Local $initialWinList = $epilogueOpaque[0]
+    Local $topmostWinList = $epilogueOpaque[1]
+    Local $foundIndex = $epilogueOpaque[2]
+    Local $setWindowPosCount = $epilogueOpaque[3]
+    ; undo making windows temporarily topmost. some windows might have disappeared, so we need to handle that too
+    For $i = $foundIndex-1 To 1 Step -1
+        If $initialWinList[$i][1] And WinExists($initialWinList[$i][1]) Then
+            If Not $topmostWinList[$i] Then
+                _WinAPI_SetWindowPos($initialWinList[$i][1], $HWND_NOTOPMOST, 0, 0, 0, 0, BitOR($SWP_NOACTIVATE, $SWP_NOMOVE, $SWP_NOSIZE, $SWP_NOOWNERZORDER))
+            EndIf
+            If $initialWinList[$i][0] <> "" Then
+                WinActivate($initialWinList[$i][1])
+                _WinWaitActive($initialWinList[$i][1], "", 1)
+            EndIf
+        EndIf
+    Next
 EndFunc
 
 Func processEvent($windowHandle, $event)
@@ -530,8 +563,10 @@ Func processConfig()
     Switch $cfgAutofocusAfterwards
         Case $CFG_AUTOFOCUS_AFTERWARDS_KEEP
             TrayItemSetState($trayAutofocusAfterwardsKeep, $TRAY_CHECKED)
-        Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO
-            TrayItemSetState($trayAutofocusAfterwardsUndo, $TRAY_CHECKED)
+        Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO_SIMPLE
+            TrayItemSetState($trayAutofocusAfterwardsUndoSimple, $TRAY_CHECKED)
+        Case $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE
+            TrayItemSetState($trayAutofocusAfterwardsUndoComprehensive, $TRAY_CHECKED)
     EndSwitch
 
     For $i = 0 To UBound($CFG_AUTOFOCUS_FOCUS_DELAY_VALUES)-1
