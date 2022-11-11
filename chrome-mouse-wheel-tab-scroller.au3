@@ -41,16 +41,20 @@ Global Const $PROJECT_GITHUB_API_URL = "https://api.github.com/repos/nurupo/chro
 Global Const $PROJECT_HOMEPAGE_URL   = $PROJECT_GITHUB_URL
 Global Const $PROJECT_DONATE_URL     = "https://github.com/sponsors/nurupo"
 
+#include <APISysConstants.au3>
 #include <EditConstants.au3>
 #include <FileConstants.au3>
 #include <GUIConstants.au3>
 #include <GUIConstantsEx.au3>
+#include <GuiMenu.au3>
 #include <InetConstants.au3>
 #include <Misc.au3>
 #include <MsgBoxConstants.au3>
 #include <StaticConstants.au3>
 #include <StringConstants.au3>
 #include <TrayConstants.au3>
+#include <WinAPIGdi.au3>
+#include <WinAPIIcons.au3>
 #include <WinAPIProc.au3>
 #include <WinAPIRes.au3>
 #include <WinAPISys.au3>
@@ -103,11 +107,22 @@ Global $checkUpdateOnLaunchTimer = Null
 Global $checkUpdateOnLaunchNextTime = 0
 Global $checkUpdateOnLaunch = False
 Global $disabled = False
+Global $isAdmin = IsAdmin()
 
-If _Singleton($RES_PRODUCT_NAME, 1) == 0 Then
-    MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
-    Exit
-EndIf
+Func singleInstance($level = 1)
+    If _Singleton($RES_PRODUCT_NAME, 1) == 0 Then
+        If Not $isAdmin Or $level == 5 Then
+            MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
+            Exit
+        EndIf
+        ; This process could be restarted as Admin from a non-elevated process, so give the non-elevated process some time to exit
+        If $isAdmin Then
+            Sleep(100)
+            singleInstance($level+1)
+        EndIf
+    EndIf
+EndFunc
+singleInstance()
 
 Global Const $WM_TRAYNOTIFY = $WM_USER + 1
 Global Const $NIN_BALLOONUSERCLICK = $WM_USER + 5
@@ -126,6 +141,12 @@ Global Const $inputHandlerForm = GUICreate($RES_PRODUCT_NAME & " Raw Input Handl
 setupRawInputHandler()
 
 Opt("TrayMenuMode", 1+4)
+Global $trayRestartAsAdmin = 0
+If Not $isAdmin Then
+    $trayRestartAsAdmin = TrayCreateItem("Restart as Administrator")
+    trayItemLastSetElevatedIcon()
+    TrayCreateItem("")
+EndIf
 Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
 Global $trayAutofocus = TrayCreateItem("Autofocus Chrome")
 Global $trayAutofocusAfterwards = TrayCreateMenu("After autofocusing")
@@ -228,6 +249,11 @@ Func processTrayEvents()
                     ExitLoop
                 EndIf
             Next
+            If Not $isAdmin Then
+                If $msg == $trayRestartAsAdmin Then
+                    restartAsAdmin()
+                EndIf
+            EndIf
     EndSwitch
 EndFunc
 
@@ -650,6 +676,35 @@ Func autoItWinGetHandle()
     Local $windowHandle = WinGetHandle($newTitle)
     AutoItWinSetTitle($oldTitle)
     Return $windowHandle
+EndFunc
+
+Func restartAsAdmin($params = "")
+    Local $pid
+    If @Compiled Then
+        $pid = ShellExecute(@ScriptFullPath, $params, @WorkingDir, "runas")
+    Else
+        $pid = ShellExecute(@AutoItExe, '/AutoIt3ExecuteScript "' & @ScriptFullPath & '" ' & $params, @WorkingDir, "runas")
+    EndIf
+    If $pid > 0 Then
+        Exit
+    EndIf
+EndFunc
+
+Func trayItemLastSetElevatedIcon($trayMenu = 0)
+    Local Static $shieldBitmap = 0
+    If Not $shieldBitmap Then
+        Local $shieldIcon = _WinAPI_LoadIconMetric(0, $IDI_SHIELD, $LIM_SMALL)
+        If $shieldIcon == 0 Then Return False
+        Local $iconInfo = _WinAPI_GetIconInfoEx($shieldIcon)
+        If Not IsArray($iconInfo) Then Return False
+        $shieldBitmap = _WinAPI_CopyImage($iconInfo[4], $IMAGE_BITMAP, 0, 0, $LR_CREATEDIBSECTION)
+        If Not $shieldBitmap Then Return False
+    EndIf
+    Local $trayMenuHandle = TrayItemGetHandle($trayMenu)
+    If Not $trayMenuHandle Then Return False
+    Local $lastTrayItemPos = _GUICtrlMenu_GetItemCount($trayMenuHandle)-1
+    If $lastTrayItemPos < 0 Then Return False
+    Return _GUICtrlMenu_SetItemBitmaps($trayMenuHandle, $lastTrayItemPos, $shieldBitmap, $shieldBitmap)
 EndFunc
 
 Func aboutDialog()
