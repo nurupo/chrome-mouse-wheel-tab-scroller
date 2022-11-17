@@ -120,6 +120,10 @@ Global $checkUpdateOnLaunch = False
 Global $disabled = False
 Global $isAdmin = IsAdmin()
 
+Global $formAbout
+Global $formAboutPos
+GUIRegisterMsg($WM_GETMINMAXINFO, "WM_GETMINMAXINFO")
+
 Global Enum $OPTIONS_EARLY, _
             $OPTIONS_LATE
 Global $optDelaySingletonCheck = False
@@ -985,33 +989,49 @@ Func processOptions($type)
     Next
 EndFunc
 
+Func WM_GETMINMAXINFO($hWnd, $iMsg, $wParam, $lParam)
+    If $hWnd <> $formAbout Then $GUI_RUNDEFMSG
+    Local $minmaxinfo = DllStructCreate("long;long;long;long;long;long;long;long;long;long", $lParam)
+    DllStructSetData($minmaxinfo, 7, $formAboutPos[2]) ; min x
+    DllStructSetData($minmaxinfo, 8, $formAboutPos[3]) ; min y
+    Return 0
+EndFunc
+
 Func aboutDialog()
-    Local $formAbout = GUICreate("About", 682, 354, -1, -1, -1, BitOR($WS_EX_TOPMOST, $WS_EX_WINDOWEDGE))
-    ; Disable the maximize button (no layouting breaks the form when maximized)
-    _WinAPI_SetWindowLong(-1, $GWL_STYLE, BitXOr(_WinAPI_GetWindowLong(-1, $GWL_STYLE), $WS_MAXIMIZEBOX))
+    $formAbout = GUICreate("About", 682, 354, -1, -1, $WS_OVERLAPPEDWINDOW, $WS_EX_TOPMOST)
+    $formAboutPos = WinGetPos($formAbout)
     GUISetBkColor(0xFFFFFF)
     GUICtrlCreateLabel($RES_PRODUCT_NAME, 152, 16, 526, 31)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
     GUICtrlSetFont(-1, 18)
     GUICtrlCreateIcon(@AutoItExe, 99, 8, 8, 128, 128)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
     GUICtrlCreateLabel($RES_COMMENT, 152, 48, 526, 22)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
     GUICtrlSetFont(-1, 12)
     GUICtrlCreateLabel($RES_LEGAL_COPYRIGHT, 152, 88, 526, 20)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
     GUICtrlSetFont(-1, 10)
-    GUICtrlCreateLabel("Version " & $RES_PRODUCT_VERSION, 152, 112, 274, 20)
+    GUICtrlCreateLabel("Version " & $RES_PRODUCT_VERSION, 152, 112, 268, 20)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKLEFT)
     GUICtrlSetFont(-1, 10)
     Local $labelHomepage = GUICtrlCreateLabel("Homepage", 421, 112, 66, 20)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKRIGHT)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
     GUICtrlSetCursor(-1, $MCID_HAND)
     Local $labelCheckUpdate = GUICtrlCreateLabel("Check for updates", 501, 112, 109, 20)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKRIGHT)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
     GUICtrlSetCursor(-1, $MCID_HAND)
     Local $labelDonate = GUICtrlCreateLabel("Donate", 624, 112, 45, 20)
+    GUICtrlSetResizing(-1, $GUI_DOCKSIZE + $GUI_DOCKTOP + $GUI_DOCKRIGHT)
     GUICtrlSetFont(-1, 10, $FW_NORMAL, 4)
     GUICtrlSetColor(-1, 0x0000FF)
     GUICtrlSetCursor(-1, $MCID_HAND)
     GUICtrlCreateEdit("", 8, 144, 665, 201, BitOR($ES_AUTOVSCROLL, $ES_AUTOHSCROLL, $ES_READONLY, $ES_WANTRETURN, $WS_VSCROLL))
+    GUICtrlSetResizing(-1, $GUI_DOCKBORDERS + $GUI_DOCKHCENTER + $GUI_DOCKVCENTER)
     GUICtrlSetData(-1, StringFormat( _
         $RES_PRODUCT_NAME & @CRLF & _
         "Author: " & $RES_COMPANY_NAME & @CRLF & _
