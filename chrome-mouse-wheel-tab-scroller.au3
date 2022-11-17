@@ -43,6 +43,7 @@ Global Const $PROJECT_DONATE_URL     = "https://github.com/sponsors/nurupo"
 
 #include <APISysConstants.au3>
 #include <EditConstants.au3>
+#include <File.au3>
 #include <FileConstants.au3>
 #include <GUIConstants.au3>
 #include <GUIConstantsEx.au3>
@@ -50,10 +51,12 @@ Global Const $PROJECT_DONATE_URL     = "https://github.com/sponsors/nurupo"
 #include <InetConstants.au3>
 #include <Misc.au3>
 #include <MsgBoxConstants.au3>
+#include <Security.au3>
 #include <StaticConstants.au3>
 #include <StringConstants.au3>
 #include <TrayConstants.au3>
 #include <WinAPIGdi.au3>
+#include <WinAPIFiles.au3>
 #include <WinAPIIcons.au3>
 #include <WinAPIProc.au3>
 #include <WinAPIRes.au3>
@@ -96,8 +99,15 @@ Global $cfgAutofocusFocusDelay = Null
 Global $cfgCheckUpdateOnLaunch = Null
 
 ; Other application state
+Global Enum $STARTUP_CURRENT_USER_AS_ADMIN, _
+            $STARTUP_CURRENT_USER_AS_REGULAR, _
+            $STARTUP_DISABLED, _
+            $STARTUP_MAX
+Global $startup = Null
+
 Global Enum $MOUSE_WHEEL_SCROLL_UP_EVENT, _
             $MOUSE_WHEEL_SCROLL_DOWN_EVENT
+
 ; https://www.wolframalpha.com/input?i=%28sum+from+i%3D0+to+i%3D4+of+30*3%5Ei%29%2F60%2F60
 Global Const $CHECK_UPDATE_ON_LAUNCH_MAX_TRIES = 4
 Global Const $CHECK_UPDATE_ON_LAUNCH_DELAY = 30*1000
@@ -106,18 +116,25 @@ Global $checkUpdateOnLaunchTries = 0
 Global $checkUpdateOnLaunchTimer = Null
 Global $checkUpdateOnLaunchNextTime = 0
 Global $checkUpdateOnLaunch = False
+
 Global $disabled = False
 Global $isAdmin = IsAdmin()
 
+Global Enum $OPTIONS_EARLY, _
+            $OPTIONS_LATE
+Global $optDelaySingletonCheck = False
+
+processOptions($OPTIONS_EARLY)
+
 Func singleInstance($level = 1)
     If _Singleton($RES_PRODUCT_NAME, 1) == 0 Then
-        If Not $isAdmin Or $level == 5 Then
+        If Not $isAdmin Or ($isAdmin And (Not $optDelaySingletonCheck Or $level == 10)) Then
             MsgBox($MB_ICONWARNING, "Error", "Another instance of this application is already running.")
             Exit
         EndIf
-        ; This process could be restarted as Admin from a non-elevated process, so give the non-elevated process some time to exit
-        If $isAdmin Then
-            Sleep(100)
+        ; This program could restart itself as Admin and request to give the old process some time to exit
+        If $isAdmin And $optDelaySingletonCheck Then
+            Sleep(500)
             singleInstance($level+1)
         EndIf
     EndIf
@@ -141,10 +158,10 @@ Global Const $inputHandlerForm = GUICreate($RES_PRODUCT_NAME & " Raw Input Handl
 setupRawInputHandler()
 
 Opt("TrayMenuMode", 1+4)
-Global $trayRestartAsAdmin = 0
+Global $trayRestartAsAdmin = -1
 If Not $isAdmin Then
     $trayRestartAsAdmin = TrayCreateItem("Restart as Administrator")
-    trayItemLastSetElevatedIcon()
+    trayItemSetShieldIcon()
     TrayCreateItem("")
 EndIf
 Global $trayReverse = TrayCreateItem("Reverse the scroll direction")
@@ -163,6 +180,10 @@ Next
 Global $trayDisable = TrayCreateItem("Disable")
 TrayItemSetState($trayDisable, $TRAY_DEFAULT)
 TrayCreateItem("")
+Global $trayStartup = TrayCreateMenu("Run at startup")
+Global $trayStartupCurrentUserAsAdmin = TrayCreateItem("As Administrator", $trayStartup, -1, $TRAY_ITEM_RADIO)
+Global $trayStartupCurrentUserAsRegular = TrayCreateItem("As " & @UserName, $trayStartup, -1, $TRAY_ITEM_RADIO)
+Global $trayStartupDisable = TrayCreateItem("Disable", $trayStartup, -1, $TRAY_ITEM_RADIO)
 Global $trayCheckUpdateOnLaunch = TrayCreateItem("Check for updates on launch")
 Global $trayAbout = TrayCreateItem("About")
 TrayCreateItem("")
@@ -173,6 +194,8 @@ TraySetToolTip($RES_PRODUCT_NAME)
 
 readConfig()
 processConfig()
+startupTraySync()
+processOptions($OPTIONS_LATE)
 
 While 1
     processTrayEvents()
@@ -198,13 +221,10 @@ Func processTrayEvents()
             Local $trayDisableState = TrayItemGetState($trayDisable)
             Select
                 Case BitAND($trayDisableState, $TRAY_CHECKED)
-                    $trayDisableState = BitXOR($trayDisableState, $TRAY_CHECKED)
-                    $trayDisableState = BitOR($trayDisableState, $TRAY_UNCHECKED)
+                    trayItemSetCheck($trayDisable, $TRAY_UNCHECKED)
                 Case BitAND($trayDisableState, $TRAY_UNCHECKED)
-                    $trayDisableState = BitXOR($trayDisableState, $TRAY_UNCHECKED)
-                    $trayDisableState = BitOR($trayDisableState, $TRAY_CHECKED)
+                    trayItemSetCheck($trayDisable, $TRAY_CHECKED)
             EndSelect
-            TrayItemSetState($trayDisable, $trayDisableState)
             ContinueCase
         Case $trayDisable
             Local $trayDisableState = TrayItemGetState($trayDisable)
@@ -225,14 +245,20 @@ Func processTrayEvents()
         Case $trayAutofocusAfterwardsUndoComprehensive
             $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE
             writeConfig()
+        Case $trayStartupCurrentUserAsAdmin
+            startupTrayChange($startup, $STARTUP_CURRENT_USER_AS_ADMIN)
+            startupTraySync()
+        Case $trayStartupCurrentUserAsRegular
+            startupTrayChange($startup, $STARTUP_CURRENT_USER_AS_REGULAR)
+            startupTraySync()
+        Case $trayStartupDisable
+            startupTrayChange($startup, $STARTUP_DISABLED)
+            startupTraySync()
         Case $trayCheckUpdateOnLaunch
             $cfgCheckUpdateOnLaunch = Not $cfgCheckUpdateOnLaunch
             writeConfig()
         Case $trayAbout
-            Local $trayAboutState = TrayItemGetState($trayAbout)
-            $trayAboutState = BitXOR($trayAboutState, $TRAY_CHECKED)
-            $trayAboutState = BitOR($trayAboutState, $TRAY_UNCHECKED)
-            TrayItemSetState($trayAbout, $trayAboutState)
+            trayItemSetCheck($trayAbout, $TRAY_UNCHECKED)
             Local Static $aboutDialogExists = False
             If Not $aboutDialogExists Then
                 $aboutDialogExists = True
@@ -679,18 +705,12 @@ Func autoItWinGetHandle()
 EndFunc
 
 Func restartAsAdmin($params = "")
-    Local $pid
-    If @Compiled Then
-        $pid = ShellExecute(@ScriptFullPath, $params, @WorkingDir, "runas")
-    Else
-        $pid = ShellExecute(@AutoItExe, '/AutoIt3ExecuteScript "' & @ScriptFullPath & '" ' & $params, @WorkingDir, "runas")
-    EndIf
-    If $pid > 0 Then
-        Exit
-    EndIf
+    If Not @Compiled Then $params = '/AutoIt3ExecuteScript "' & @ScriptFullPath & '" ' & $params
+    $params &= " --delay-singleton-check"
+    If ShellExecute(@AutoItExe, $params, @WorkingDir, "runas") > 0 Then Exit
 EndFunc
 
-Func trayItemLastSetElevatedIcon($trayMenu = 0)
+Func trayItemSetShieldIcon($trayItemPos = -1, $trayMenu = 0)
     Local Static $shieldBitmap = 0
     If Not $shieldBitmap Then
         Local $shieldIcon = _WinAPI_LoadIconMetric(0, $IDI_SHIELD, $LIM_SMALL)
@@ -702,9 +722,267 @@ Func trayItemLastSetElevatedIcon($trayMenu = 0)
     EndIf
     Local $trayMenuHandle = TrayItemGetHandle($trayMenu)
     If Not $trayMenuHandle Then Return False
-    Local $lastTrayItemPos = _GUICtrlMenu_GetItemCount($trayMenuHandle)-1
-    If $lastTrayItemPos < 0 Then Return False
-    Return _GUICtrlMenu_SetItemBitmaps($trayMenuHandle, $lastTrayItemPos, $shieldBitmap, $shieldBitmap)
+    If $trayItemPos == -1 Then
+        $trayItemPos = _GUICtrlMenu_GetItemCount($trayMenuHandle)-1
+    EndIf
+    If $trayItemPos < 0 Then Return False
+    Return _GUICtrlMenu_SetItemBitmaps($trayMenuHandle, $trayItemPos, $shieldBitmap, $shieldBitmap)
+EndFunc
+
+Func startupCreate($name, $type, $params = "")
+    If Not @Compiled Then $params = '/AutoIt3ExecuteScript "' & @ScriptFullPath & '" ' & $params
+    $params &= " --startup"
+    Switch $type
+        Case $STARTUP_CURRENT_USER_AS_ADMIN
+            Local $taskXml = _
+                '<?xml version="1.0" encoding="UTF-16"?>' & @CRLF & _
+                '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">' & @CRLF & _
+                '  <RegistrationInfo>' & @CRLF & _
+                '    <Date>' & @YEAR & '-' & @MON & '-' & @MDAY & 'T' & @HOUR & ':' & @MIN & ':' & @SEC & '.' & @MSEC & '</Date>' & @CRLF & _
+                '    <Description>Runs ' & $name & ' on startup</Description>' & @CRLF & _
+                '    <URI>\' & $name & '</URI>' & @CRLF & _
+                '  </RegistrationInfo>' & @CRLF & _
+                '  <Triggers>' & @CRLF & _
+                '    <LogonTrigger>' & @CRLF & _
+                '      <Enabled>true</Enabled>' & @CRLF & _
+                '      <UserId>' & @ComputerName & '\' & @UserName & '</UserId>' & @CRLF & _
+                '    </LogonTrigger>' & @CRLF & _
+                '  </Triggers>' & @CRLF & _
+                '  <Principals>' & @CRLF & _
+                '    <Principal id="Author">' & @CRLF & _
+                '      <UserId>' & _Security__SidToStringSid(_Security__GetAccountSid(@UserName)) & '</UserId>' & @CRLF & _
+                '      <LogonType>InteractiveToken</LogonType>' & @CRLF & _
+                '      <RunLevel>HighestAvailable</RunLevel>' & @CRLF & _
+                '    </Principal>' & @CRLF & _
+                '  </Principals>' & @CRLF & _
+                '  <Settings>' & @CRLF & _
+                '    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>' & @CRLF & _
+                '    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>' & @CRLF & _
+                '    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>' & @CRLF & _
+                '    <AllowHardTerminate>true</AllowHardTerminate>' & @CRLF & _
+                '    <StartWhenAvailable>false</StartWhenAvailable>' & @CRLF & _
+                '    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>' & @CRLF & _
+                '    <IdleSettings>' & @CRLF & _
+                '      <StopOnIdleEnd>true</StopOnIdleEnd>' & @CRLF & _
+                '      <RestartOnIdle>false</RestartOnIdle>' & @CRLF & _
+                '    </IdleSettings>' & @CRLF & _
+                '    <AllowStartOnDemand>true</AllowStartOnDemand>' & @CRLF & _
+                '    <Enabled>true</Enabled>' & @CRLF & _
+                '    <Hidden>false</Hidden>' & @CRLF & _
+                '    <RunOnlyIfIdle>false</RunOnlyIfIdle>' & @CRLF & _
+                '    <WakeToRun>false</WakeToRun>' & @CRLF & _
+                '    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>' & @CRLF & _
+                '    <Priority>7</Priority>' & @CRLF & _
+                '  </Settings>' & @CRLF & _
+                '  <Actions Context="Author">' & @CRLF & _
+                '    <Exec>' & @CRLF & _
+                '      <Command>"' & @AutoItExe & '"</Command>' & @CRLF & _
+                '      <Arguments>' & $params & '</Arguments>' & @CRLF & _
+                '    </Exec>' & @CRLF & _
+                '  </Actions>' & @CRLF & _
+                '</Task>' & @CRLF
+                Local $taskXmlFilePath = _TempFile()
+                If Not FileWrite($taskXmlFilePath, $taskXml) Then Return False
+                If RunWait('schtasks.exe /Create /XML "' & $taskXmlFilePath & '" /TN "' & $name & '"', "", @SW_HIDE) Then Return False
+                Return FileDelete($taskXmlFilePath) == 1
+        Case $STARTUP_CURRENT_USER_AS_REGULAR
+            Return RegWrite("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run", $name, "REG_SZ", '"' & @AutoItExe & '" ' & $params) == 1
+            ;Return FileCreateShortcut($executable, @StartupDir & "/" & $name & ".lnk", "", $params) == 1
+    EndSwitch
+EndFunc
+
+Func startupDelete($name, $type)
+    Switch $type
+        Case $STARTUP_CURRENT_USER_AS_ADMIN
+            Return RunWait('schtasks.exe /Delete /F /TN "' & $name & '"', "", @SW_HIDE) == 0
+        Case $STARTUP_CURRENT_USER_AS_REGULAR
+            Return RegDelete("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run", $name) == 1
+            ;Return FileDelete(@StartupDir & "/" & $name & ".lnk") == 1
+    EndSwitch
+EndFunc
+
+Func startupExists($name, $type)
+    Switch $type
+        Case $STARTUP_CURRENT_USER_AS_ADMIN
+            Return RunWait('schtasks.exe /Query /TN "' & $name & '"', "", @SW_HIDE) == 0
+        Case $STARTUP_CURRENT_USER_AS_REGULAR
+            RegRead("HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Run", $name)
+            Return @error == 0
+            ;Return FileExists(@StartupDir & "/" & $name & ".lnk") == 1
+    EndSwitch
+EndFunc
+
+Func startupTraySync()
+    trayItemSetCheck($trayStartupCurrentUserAsAdmin, $TRAY_UNCHECKED)
+    trayItemSetCheck($trayStartupCurrentUserAsRegular, $TRAY_UNCHECKED)
+    trayItemSetCheck($trayStartupDisable, $TRAY_UNCHECKED)
+    Local $hasStartupAdmin = startupExists($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_ADMIN)
+    Local $hasStartupRegular = startupExists($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR)
+    If $hasStartupAdmin Then
+        trayItemSetCheck($trayStartupCurrentUserAsAdmin, $TRAY_CHECKED)
+        $startup = $STARTUP_CURRENT_USER_AS_ADMIN
+        If $hasStartupRegular Then
+            startupDelete($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR)
+        EndIf
+    ElseIf $hasStartupRegular Then
+        trayItemSetCheck($trayStartupCurrentUserAsRegular, $TRAY_CHECKED)
+        $startup = $STARTUP_CURRENT_USER_AS_REGULAR
+    Else
+        trayItemSetCheck($trayStartupDisable, $TRAY_CHECKED)
+        $startup = $STARTUP_DISABLED
+    EndIf
+EndFunc
+
+Func trayItemSetCheck($trayItem, $checkFlag)
+    Local $oppositeFlag = Null
+    If $checkFlag == $TRAY_CHECKED Then
+        $oppositeFlag = $TRAY_UNCHECKED
+    Else
+        $oppositeFlag = $TRAY_CHECKED
+    EndIf
+    Local $state = TrayItemGetState($trayItem)
+    $state = BitXOR($state, $oppositeFlag)
+    $state = BitOR($state, $checkFlag)
+    TrayItemSetState($trayItem, $state)
+EndFunc
+
+Func startupTrayChange($startupOld, $startupNew)
+    Switch $startupOld
+        Case $STARTUP_CURRENT_USER_AS_ADMIN
+            Switch $startupNew
+                Case $STARTUP_CURRENT_USER_AS_ADMIN
+                    ; noop
+                Case $STARTUP_CURRENT_USER_AS_REGULAR
+                    If Not requireAdmin("--startup-select " & $startupNew) Then Return
+                    If Not startupDelete($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_ADMIN) Then Return
+                    If Not startupCreate($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR) Then Return
+                Case $STARTUP_DISABLED
+                    If Not requireAdmin("--startup-select " & $startupNew) Then Return
+                    If Not startupDelete($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_ADMIN) Then Return
+            EndSwitch
+        Case $STARTUP_CURRENT_USER_AS_REGULAR
+            Switch $startupNew
+                Case $STARTUP_CURRENT_USER_AS_ADMIN
+                    If Not requireAdmin("--startup-select " & $startupNew) Then Return
+                    If Not requireProgramFiles("--startup-select " & $startupNew) Then Return
+                    If Not startupDelete($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR) Then Return
+                    If Not startupCreate($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_ADMIN) Then Return
+                Case $STARTUP_CURRENT_USER_AS_REGULAR
+                    ; noop
+                Case $STARTUP_DISABLED
+                    If Not startupDelete($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR) Then Return
+            EndSwitch
+        Case $STARTUP_DISABLED
+            Switch $startupNew
+                Case $STARTUP_CURRENT_USER_AS_ADMIN
+                    If Not requireAdmin("--startup-select " & $startupNew) Then Return
+                    If Not requireProgramFiles("--startup-select " & $startupNew) Then Return
+                    If Not startupCreate($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_ADMIN) Then Return
+                Case $STARTUP_CURRENT_USER_AS_REGULAR
+                    If Not startupCreate($RES_PRODUCT_NAME, $STARTUP_CURRENT_USER_AS_REGULAR) Then Return
+                Case $STARTUP_DISABLED
+                    ; noop
+            EndSwitch
+    EndSwitch
+EndFunc
+
+Func requireAdmin($restartParams)
+    If $isAdmin Then Return True
+    restartAsAdmin($restartParams)
+    Return False
+EndFunc
+
+Func pathInProgramFiles($path)
+    $path = _WinAPI_GetFullPathName($path)
+    Local $programFilesDirs = [EnvGet("SystemDrive") & "\Program Files\", _
+                               EnvGet("SystemDrive") & "\Program Files (x86)\", _
+                               @ProgramFilesDir & "\"]
+    For $i = 0 To UBound($programFilesDirs)-1
+        If StringLeft($path, StringLen($programFilesDirs[$i])) == $programFilesDirs[$i] Then
+            Return True
+        EndIf
+    Next
+    Return False
+EndFunc
+
+Func requireProgramFiles($restartParams)
+    If Not $isAdmin Then Return False
+    If Not @Compiled Then
+        Local $autoitFullPath = _WinAPI_GetFullPathName(@AutoItExe)
+        If Not pathInProgramFiles($autoitFullPath) Then
+            MsgBox($MB_OK+$MB_ICONERROR, $RES_PRODUCT_NAME, _
+                   "Error: AutoIt is installed into a potentially insecure folder:" & @CRLF & _
+                   '"' & $autoitFullPath & '"' & @CRLF & _
+                   @CRLF & _
+                   "Please install AutoIt into the Program Files folder.")
+            Return False
+        EndIf
+    EndIf
+    Local $scriptFullPath = _WinAPI_GetFullPathName(@ScriptFullPath)
+    Local $newScriptDir = @ProgramFilesDir & "\" & $RES_PRODUCT_NAME
+    Local $newScriptFullPath = $newScriptDir & "\" & @ScriptName
+    If pathInProgramFiles($scriptFullPath) Then Return True
+    Local $button = MsgBox($MB_YESNO+$MB_ICONWARNING, $RES_PRODUCT_NAME, _
+                           "For security reasons, the program will be moved from:" & @CRLF & _
+                           '"' & $scriptFullPath & '"' & @CRLF & _
+                           "to:" & @CRLF & _
+                           '"' & $newScriptFullPath & '"' & @CRLF & _
+                           @CRLF & _
+                           "Proceed?")
+    If $button == $IDNO Or $button == $IDTIMEOUT Then Return False
+    DirRemove($newScriptDir, $DIR_REMOVE)
+    If Not DirCreate($newScriptDir) Then Return False
+    If Not FileCopy($scriptFullPath, $newScriptFullPath) Then Return False
+    $restartParams &= " --delay-singleton-check"
+    If @Compiled Then
+        If Run('"' & $newScriptFullPath & '" ' & $restartParams) == 0 Then Return False
+    Else
+        If Run('"' & @AutoItExe & '" /AutoIt3ExecuteScript "' & $newScriptFullPath & '" ' & $restartParams) == 0 Then Return False
+    EndIf
+    exitAndSelfDelete()
+    Return False
+EndFunc
+
+Func exitAndSelfDelete()
+    Local $batFilePath = _TempFile(@TempDir, "~", ".bat")
+    FileWrite($batFilePath, _
+              'ping -n 2 127.0.0.1 > nul' & @CRLF & _
+              ':loop' & @CRLF & _
+              'del "' & @ScriptFullPath & '"' & @CRLF & _
+              'if exist "' & @ScriptFullPath & '" goto loop' & @CRLF & _
+              'del %0')
+    If Run($batFilePath, "", @SW_HIDE) <> 0 Then Exit
+EndFunc
+
+Func processOptions($type)
+    For $i = 1 To $CmdLine[0]
+        If StringLeft($CmdLine[$i], 2) <> "--" Then ContinueLoop
+        Local $option = StringLower($CmdLine[$i])
+        Local $arg = Null
+        If $i+1 <= $CmdLine[0] And StringLeft($CmdLine[$i+1], 2) <> "--" Then
+            $arg = $CmdLine[$i+1]
+        EndIf
+        Switch $type
+            Case $OPTIONS_EARLY
+                Switch $option
+                    Case "--delay-singleton-check"
+                        If Not $isAdmin Then ContinueLoop
+                        $optDelaySingletonCheck = True
+                    Case "--statup"
+                        ; nothing for now, might be useful later
+                EndSwitch
+            Case $OPTIONS_LATE
+                Switch $option
+                    Case "--startup-select"
+                        If Not $isAdmin Then ContinueLoop
+                        If Not IsString($arg) Then ContinueLoop
+                        Local $startupNew = Int($arg)
+                        If $startupNew < 0 Or $startupNew >= $STARTUP_MAX Then ContinueLoop
+                        startupTrayChange($startup, $startupNew)
+                        startupTraySync()
+                EndSwitch
+        EndSwitch
+    Next
 EndFunc
 
 Func aboutDialog()
