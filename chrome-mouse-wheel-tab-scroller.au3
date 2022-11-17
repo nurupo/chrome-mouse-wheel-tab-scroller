@@ -234,10 +234,18 @@ Func processTrayEvents()
             Local $trayDisableState = TrayItemGetState($trayDisable)
             Select
                 Case BitAND($trayDisableState, $TRAY_CHECKED)
-                    TraySetIcon(@ScriptFullPath, 201)
+                    If @Compiled Then
+                        TraySetIcon(@ScriptFullPath, 201)
+                    Else
+                        TraySetIcon("shell32.dll", -132) ; red x icon
+                    EndIf
                     $disabled = True
                 Case BitAND($trayDisableState, $TRAY_UNCHECKED)
-                    TraySetIcon(@ScriptFullPath, 99)
+                    If @Compiled Then
+                        TraySetIcon(@ScriptFullPath, 99)
+                    Else
+                        TraySetIcon(@ScriptFullPath)
+                    EndIf
                     $disabled = False
             EndSelect
         Case $trayAutofocusAfterwardsKeep
