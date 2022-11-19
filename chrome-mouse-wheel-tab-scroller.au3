@@ -581,11 +581,11 @@ EndFunc
 Func readConfig()
     $cfgReverse = Int(IniRead($CFG_FILE_PATH, "options", "reverse", 0)) == 1
     $cfgAutofocus = Int(IniRead($CFG_FILE_PATH, "options", "autofocus", 1)) == 1
-    $cfgAutofocusAfterwards = Int(IniRead($CFG_FILE_PATH, "options", "autofocusAfterwards", $CFG_AUTOFOCUS_AFTERWARDS_KEEP))
+    $cfgAutofocusAfterwards = Int(IniRead($CFG_FILE_PATH, "options", "autofocusAfterwards", $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE))
     If $cfgAutofocusAfterwards < 0 Or $cfgAutofocusAfterwards >= $CFG_AUTOFOCUS_AFTERWARDS_MAX Then
         ConsoleWrite("Warning: Incorrect value for the autofocusAfterwards option in " & $CFG_FILE_PATH & _
-                     ", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_KEEP & @CRLF)
-        $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_KEEP
+                     ", using the default: autofocusAfterwards=" & $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE & @CRLF)
+        $cfgAutofocusAfterwards = $CFG_AUTOFOCUS_AFTERWARDS_UNDO_COMPREHENSIVE
     EndIf
     $cfgAutofocusFocusDelay = Int(IniRead($CFG_FILE_PATH, "options", "autofocusFocusDelay", _
                                           $CFG_AUTOFOCUS_FOCUS_DELAY_VALUES[$CFG_AUTOFOCUS_FOCUS_DELAY_VALUES_DEFAULT_INDEX]))
