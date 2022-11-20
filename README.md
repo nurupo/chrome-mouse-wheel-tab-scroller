@@ -10,7 +10,7 @@ In action:
 
 ![Animation showing tab switching](https://i.imgur.com/ye1cNBc.gif)
 
-Tray menu):
+Tray menu:
 
 ![Animation showing the tray menu](https://i.imgur.com/aED5mOf.gif)
 
