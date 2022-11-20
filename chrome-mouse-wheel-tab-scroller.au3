@@ -660,14 +660,14 @@ Func checkUpdate($verbose)
     Local $latestPublishedAt = releaseDate($latestJson, "published_at")
     If $latestTagName == ("v" & $RES_PRODUCT_VERSION) Then
         If $verbose Then
-            TrayTip("Already up to date!", "You are running the latest version: " & $latestTagName & $latestPublishedAt, 30)
+            TrayTip("Already up to date!", "You are running the latest version: " & @CRLF & $latestTagName & $latestPublishedAt, 30)
         EndIf
         Return True
     EndIf
-    Local $currentJson = BinaryToString(InetRead($PROJECT_GITHUB_API_URL & "/releases/tag/" & _
+    Local $currentJson = BinaryToString(InetRead($PROJECT_GITHUB_API_URL & "/releases/tags/v" & _
                                         $RES_PRODUCT_VERSION, $INET_FORCERELOAD), $SB_UTF8)
     Local $currentPublishedAt = releaseDate($currentJson, "published_at")
-    TrayTip("An update is availalbe", "Current version: " & $RES_PRODUCT_VERSION & $currentPublishedAt & @CRLF & _
+    TrayTip("An update is availalbe", "Current version: v" & $RES_PRODUCT_VERSION & $currentPublishedAt & @CRLF & _
                                       "New version: " & $latestTagName & $latestPublishedAt, 30)
     Return True
 EndFunc
