@@ -25,14 +25,14 @@
 #AutoIt3Wrapper_Res_ProductName=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Description=Chrome Mouse Wheel Tab Scroller
 #AutoIt3Wrapper_Res_Comment=Scroll Chrome tabs using mouse wheel
-#AutoIt3Wrapper_Res_ProductVersion=2.0.1
-#AutoIt3Wrapper_Res_Fileversion=2.0.1.0
+#AutoIt3Wrapper_Res_ProductVersion=2.1.0
+#AutoIt3Wrapper_Res_Fileversion=2.1.0.0
 #AutoIt3Wrapper_Res_CompanyName=Maxim Biro (nurupo)
 #AutoIt3Wrapper_Res_LegalCopyright=Copyright 2017-2022 Maxim Biro (nurupo)
 
 Global Const $RES_PRODUCT_NAME    = "Chrome Mouse Wheel Tab Scroller"
 Global Const $RES_COMMENT         = "Scroll Chrome tabs using mouse wheel"
-Global Const $RES_PRODUCT_VERSION = "2.0.1"
+Global Const $RES_PRODUCT_VERSION = "2.1.0"
 Global Const $RES_COMPANY_NAME    = "Maxim Biro (nurupo)"
 Global Const $RES_LEGAL_COPYRIGHT = "Copyright 2017-2022 Maxim Biro (nurupo)"
 
