@@ -39,7 +39,7 @@ Global Const $RES_LEGAL_COPYRIGHT = "Copyright 2017-2022 Maxim Biro (nurupo)"
 Global Const $PROJECT_GITHUB_URL     = "https://github.com/nurupo/chrome-mouse-wheel-tab-scroller"
 Global Const $PROJECT_GITHUB_API_URL = "https://api.github.com/repos/nurupo/chrome-mouse-wheel-tab-scroller"
 Global Const $PROJECT_HOMEPAGE_URL   = $PROJECT_GITHUB_URL
-Global Const $PROJECT_DONATE_URL     = "https://github.com/sponsors/nurupo"
+Global Const $PROJECT_DONATE_URL     = "https://github.com/nurupo/donate/blob/master/README.md#donate"
 
 #include <APISysConstants.au3>
 #include <EditConstants.au3>
